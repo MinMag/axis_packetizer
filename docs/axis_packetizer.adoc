@@ -1,1 +1,64 @@
-= Emojis
+// Header of this document:
+
+Asciidoc cheatsheet for GitHub
+==============================
+:toc:
+:toc-placement: preamble
+:toclevels: 1
+:showtitle:
+:Some attr: Some value
+
+// Need some preamble to get TOC:
+Pre
+
+== Design Description
+This is a AXI-Stream pass-through design that receives incoming parallel data, packages it with a header, sequence count and length indicator, and appends a CRC32 checksum, then sends it out an AXI Stream master interface.
+
+The output Packet will begin with the header, then the sequence count, then the length indicator, then the payload, and then a CRC32 checksum.
+
+== Packet Format
+Each packet shall consist of:
+
+* A 2-byte preamble
+* A 2-byte packet id
+* A 4-byte payload length indicator
+* The payload
+* A 4-byte CRC
+
+== Pin Specification
+
+In addition to the required AXI streaming input signals, the block requires a implementation specific payload length signal.
+
+=== Signals
+.Signals
+[options="header,footer"]
+|=======================
+|Signal Name|Signal Direction| Width | Description
+|clk             |Input      |1 | Global Clock
+// Active-low async resets not recommended on FPGAs?
+|rst_n           |Input      |1             | Global active-low asynchronous reset
+|s_axis_tdata    |Input      |P_DATA_WIDTH  | AXI Stream Slave Input Data
+|s_axis_tvalid   |Input      |1             | AXI Stream Slave Input Valid
+|s_axis_tlast    |Input      |1             | AXI Stream Slave Input Last
+|s_axis_tkeep    |Input      |P_DATA_WIDTH/8| AXI Stream Slave Input Keep
+|m_axis_tready   |Input      |1             | AXI Stream Master Output Ready
+|s_payload_len   |Input      |16            | Implementation Defined Payload Length
+|s_axis_tready   |Output     |1             | AXI Stream Slave Output Ready
+|m_axis_tdata    |Output     |P_DATA_WIDTH  | AXI Stream Master Output Data
+|m_axis_tvalid   |Output     |1             | AXI Stream Master Output Valid
+|m_axis_tlast    |Output     |1             | AXI Stream Master Output Last
+|m_axis_tkeep    |Output     |P_DATA_WIDTH/8| AXI Stream Master Output Keep
+|=======================
+
+== Control Unit State Machine
+The control unit consists of 4 main states, with varied number of substates:
+
+. IDLE
+. WRITE_HEADER
+. STREAM_PAYLOAD
+. APPEND_CRC
+
+== Performance Targets 
+Latency of 4 clk cycles
+
+Clk Frequency of 250 MHz
