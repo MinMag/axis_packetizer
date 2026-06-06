@@ -1,0 +1,20 @@
+# Vivado temporary files and directories
+[current_project].tcl
+*.log
+*.jou
+*.str
+*.os
+.Xil/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+*.gen/
+*.xpr
+
+# Compiled files and hardware builds
+*.bit
+*.bin
+*.mcs
+*.prm
