@@ -1,15 +1,15 @@
 // Header of this document:
 
-Asciidoc cheatsheet for GitHub
-==============================
+
+= AXI-Stream Packetizer Specifiction
 :toc:
 :toc-placement: preamble
-:toclevels: 1
+:toclevels: 2
 :showtitle:
 :Some attr: Some value
 
 // Need some preamble to get TOC:
-Pre
+{empty}
 
 == Design Description
 This is a AXI-Stream pass-through design that receives incoming parallel data, packages it with a header, sequence count and length indicator, and appends a CRC32 checksum, then sends it out an AXI Stream master interface.
@@ -21,9 +21,21 @@ Each packet shall consist of:
 
 * A 2-byte preamble
 * A 2-byte packet id
-* A 4-byte payload length indicator
-* The payload
-* A 4-byte CRC
+* A 2-byte payload length indicator
+* A 2-byte reserved section
+* A variable payload
+* A 4-byte CRC32
+
+The position of these components shall be as follows:
+
+. Preamble
+. Packet ID
+. Payload Length
+. Reserved
+. Payload
+. CRC32
+
+The individual packet header components may be combined into combined AXI-Stream transfers, but may not be combined with payload data. The CRC32 bytes will not be combined with payload data in the same transfer.
 
 == Pin Specification
 
@@ -58,7 +70,46 @@ The control unit consists of 4 main states, with varied number of substates:
 . STREAM_PAYLOAD
 . APPEND_CRC
 
+=== IDLE
+In IDLE, the design will be ready to accept and act on a new incoming payload.
+
+The design shall enter IDLE from any state through the assertion of the rst_n signal. In IDLE, s_axis_tready shall remain high and m_axis_tvalid shall remain low. 
+
+There is one non-reset transition to this state, which is from APPEND_CRC.
+
+On the first assertion of s_axis_tvalid after a reset or after s_axis_tlast assertion, the CUSM shall transition to the WRITE_HEADER state. The first payload word shall be captured into the internal data pipeline. The s_axis_tready signal is deassert upon the state transition.
+
+=== WRITE_HEADER
+The WRITE_HEADER state is responsible for transmitting out the preamble, sequence id, and length through the AXI-Stream Master interface.
+
+In this state, m_axis_tvalid will remain asserted. The s_axis_tready signal shall remain deasserted.
+// On the initial handshake, s_axis_tready can remain high for up to *two?* clock cycles before the initial master handshake occurs. At all other times in this state where m_axis_tready falls, s_axis_tready must also fall.
+
+NOTE: There is an option to add internal data pipeline stages to have the ability to keep s_axis_tready high here. This is the path forward taken in the initial approach. This also enables APPEND_CRC to have the option to have s_axis_tready remain high.
+
+This state can be entered from IDLE. The CUSM will exit WRITE_HEADER and enter STREAM_PAYLOAD when header_counter == FINAL_WORD AND m_axis_tready == 1.
+
+=== STREAM_PAYLOAD
+The STREAM_PAYLOAD state is responsible for transmitting all payload data in the incoming AXI-Stream packet.
+
+In this state s_axis_tready shall be dependent on m_axis_tready. The m_axis_tvalid signal shall mirror s_axis_tvalid.
+
+The CUSM shall exit STREAM_PAYLOAD and enter APPEND_CRC upon reception of the s_axis_tlast signal and transmission of the final payload transfer.
+
+=== APPEND_CRC
+The APPEND_CRC state is responsible for transmitting the transfers that contain the CRC32 result from the payload data and for properly signaling the m_axis_tlast signal on the final CRC32 transfer.
+
+// Future description if skid buffers added to design.
+// In APPEND_CRC, s_axis_tready will remain high so long as m_axis_tready does not drop for more than one cycle in this state.
+In APPEND_CRC, s_axis_tready will remain deasserted.
+
+
+The CUSM shall exit APPEND_CRC to IDLE when m_axis_tvalid == 1 AND m_axis_tready == 1 on the final CRC transmission.
+
+
 == Performance Targets 
 Latency of 4 clk cycles assuming m_axis_tready = 1
 
 Clk Frequency of 250 MHz
+
+== Design Assumptions
