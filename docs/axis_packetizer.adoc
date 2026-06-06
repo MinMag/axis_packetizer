@@ -59,6 +59,6 @@ The control unit consists of 4 main states, with varied number of substates:
 . APPEND_CRC
 
 == Performance Targets 
-Latency of 4 clk cycles
+Latency of 4 clk cycles assuming m_axis_tready = 1
 
 Clk Frequency of 250 MHz
