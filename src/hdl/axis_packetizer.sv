@@ -88,7 +88,7 @@ module axis_packetizer #(
             s_axis_tvalid_seen_q <= '0;
             header_pos_q <= '0;
             packet_len_q <= '0;
-            packet_id_q <= 1'b0;
+            packet_id_q <= 16'b0;
         end else begin
             crc_value_q <= crc_value_d;
             control_state_q <= control_state_d;
@@ -120,7 +120,7 @@ module axis_packetizer #(
     always_comb begin
 
         control_state_d = control_state_q;
-        s_axis_tvalid_seen_d = S_AXIS_TVALID && S_AXIS_TREADY; //should be S_AXIS_TVALID or s_axis_tvalid_seen_q?
+
         S_AXIS_TREADY = 1'b0; // only set in specific states
         packet_id_d = packet_id_q;
         header_pos_d = header_pos_q;
@@ -184,7 +184,7 @@ module axis_packetizer #(
                 packet_id_d = packet_id_q + 1'b1;
             end
         end
-
+        s_axis_tvalid_seen_d = S_AXIS_TVALID && S_AXIS_TREADY; //should be S_AXIS_TVALID or s_axis_tvalid_seen_q?
         if (crc_clear) begin
             crc_value_d = 32'hFFFFFFFF;
         end else if (crc_hold) begin

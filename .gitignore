@@ -20,4 +20,11 @@
 *.prm
 *.dcp
 
+# Cocotb Verification Artifacts
+src/sim/sim_build/
+src/sim/__pycache__/
+src/sim/results.xml
+src/sim/*.vcd
+
 *.pdf
+
