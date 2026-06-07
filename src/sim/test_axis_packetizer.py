@@ -1,7 +1,12 @@
 import cocotb
+import random
+from asyncio import Queue
 from cocotb.triggers import Timer, RisingEdge
 from cocotb.clock import Clock
 from cocotbext.axi import AxiStreamFrame, AxiStreamSource, AxiStreamSink, AxiStreamBus
+
+PACKET_OVERHEAD = 12
+HEADER_SIZE = 8
 
 async def setup_reset(dut):
     """Helper routine to handle the initial hardware reset"""
@@ -10,6 +15,45 @@ async def setup_reset(dut):
     await RisingEdge(dut.CLK)
     dut.RST_N.value = 1
     await RisingEdge(dut.CLK)
+
+def validate_output_packet(in_data, in_len, transfer_num, out_data) -> bool:
+
+    cocotb.log.info("input_len: %d out_data len: %d", in_len, len(out_data))
+    if len(out_data) != in_len + PACKET_OVERHEAD:
+        return False
+
+    # for (idx, val) in in_data:
+    cocotb.log.info("out_data len: %d", len(out_data))
+    cocotb.log.info("in_data %x. out_data %x", int.from_bytes(in_data, byteorder='big'), int.from_bytes(out_data[8:8+in_len], byteorder='big'))
+    if in_data != out_data[8:8+in_len]:
+        return False
+
+    if transfer_num != int.from_bytes(out_data[0:+1], byteorder='big'):
+        return False
+
+
+async def send_payload(dut, axis_source, data, transfer_num):
+    dut.S_PAYLOAD_LEN.value = len(data)
+
+    input_frame = AxiStreamFrame(data)
+    dut._log.info(f"Transmitting Payload #{transfer_num} packet of length {len(data)} bytes")
+
+    await axis_source.send(input_frame)
+
+async def packet_producer(dut, axis_source, num_packets, expectation_queue):
+    for packet_id in range(num_packets):
+        num_transfers = random.randint(1,64)
+        num_bytes = num_transfers * 4
+        test_data = random.randbytes(num_bytes)
+        metadata = {
+                    "in_data": test_data,
+                    "in_len": num_bytes,
+                    "transfer_num": packet_id
+                }
+        await expectation_queue.put(metadata)
+        await send_payload(dut, axis_source, test_data, packet_id)
+
+
 
 @cocotb.test()
 async def test_baseline_packet(dut):
@@ -31,15 +75,13 @@ async def test_baseline_packet(dut):
     dut._log.info("Workspace verification environment successfully initialized!")
     await Timer(20, unit="ns")
 
-@cocotb.test(timeout_time=10, timeout_unit="us")
-async def test_no_axis_violations(dut):
+@cocotb.test(timeout_time=100, timeout_unit="us")
+async def test_data_transfer_no_backpressure(dut):
     """Test that there are no AXI-Stream protocol violations under normal operation"""
 
     # 1. Start a 250 MHz clock domain (4.0 ns period)
     cocotb.start_soon(Clock(dut.CLK, 4.0, unit="ns").start())
     
-    # 2. Initialize sideband configurations
-    dut.S_PAYLOAD_LEN.value = 12  # 12 bytes = 3 words of payload
 
     axis_source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "S_AXIS"), dut.CLK, dut.RST_N, reset_active_level=False)
     axis_sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "M_AXIS"), dut.CLK, dut.RST_N,reset_active_level=False)
@@ -47,17 +89,75 @@ async def test_no_axis_violations(dut):
     await setup_reset(dut)
     await RisingEdge(dut.CLK)
 
-    test_data = bytes([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC])
-    input_frame = AxiStreamFrame(test_data)
-
-    # 6. Inject the frame into the slave interface non-blocking
-    dut._log.info("Injecting 12-byte payload into s_axis...")
-    await axis_source.send(input_frame)
     
     # 7. Wait for the out-of-context master interface to capture the fully processed frame
-    dut._log.info("Awaiting formatted packet from m_axis...")
-    output_frame = await axis_sink.recv()
+    failures = []
+    num_runs = random.randint(1,200)
+
+    expectation_queue = Queue()
+
+    producer_handle = cocotb.start_soon(packet_producer(dut, axis_source, num_runs, expectation_queue))
+
+    for packet_id in range(num_runs):
+
+        dut._log.info("Awaiting formatted packet from m_axis...")
+        output_frame = await axis_sink.recv()
+        expected = await expectation_queue.get()
+        test_data = expected["in_data"]
+        num_bytes = expected["in_len"]
+        if validate_output_packet(test_data, num_bytes, packet_id, output_frame.tdata) == False:
+            msg = f"[Packet {packet_id}] MISMATCH! Input data: {test_data.hex().upper()} Output Packet: {output_frame.tdata.hex().upper()}"
+
+            dut._log.error(msg)
+            failures.append(msg)
+        else: 
+            dut._log.info(f"[Packet {packet_id}] Passed Cleanly.")
+
+        
+    assert len(failures) == 0, (
+        f"\n\n!!! TEST FAILED !!!\n"
+        f"Total Failures: {len(failures)} out of {num_runs} runs.\n"
+        f"Summary of failures:\n" + "\n".join(failures)
+    )
+
+@cocotb.test(timeout_time=100, timeout_unit="us")
+async def test_data_transfer_no_backpressure_bubbled(dut):
+    """Test that there are no AXI-Stream protocol violations under normal operation"""
+
+    # 1. Start a 250 MHz clock domain (4.0 ns period)
+    cocotb.start_soon(Clock(dut.CLK, 4.0, unit="ns").start())
     
-    # 8. Log the captured frame results
-    dut._log.info(f"Captured Output Frame Hex: {output_frame.tdata.hex().upper()}")
-    dut._log.info(f"Captured Output Frame Byte Count: {len(output_frame.tdata)}")
+
+    axis_source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "S_AXIS"), dut.CLK, dut.RST_N, reset_active_level=False)
+    axis_sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "M_AXIS"), dut.CLK, dut.RST_N,reset_active_level=False)
+
+    await setup_reset(dut)
+    await RisingEdge(dut.CLK)
+
+    
+    # 7. Wait for the out-of-context master interface to capture the fully processed frame
+    failures = []
+    num_runs = random.randint(1,200)
+
+    for packet_id in range(num_runs):
+        num_transfers = random.randint(1,64)
+        num_bytes = num_transfers * 4
+        test_data = random.randbytes(num_bytes)
+        await send_payload(dut, axis_source, test_data, packet_id)
+
+        dut._log.info("Awaiting formatted packet from m_axis...")
+        output_frame = await axis_sink.recv()
+        if validate_output_packet(test_data, num_bytes, packet_id, output_frame.tdata) == False:
+            msg = f"[Packet {packet_id}] MISMATCH! Input data: {test_data.hex().upper()} Output Packet: {output_frame.tdata.hex().upper()}"
+
+            dut._log.error(msg)
+            failures.append(msg)
+        else: 
+            dut._log.info(f"[Packet {packet_id}] Passed Cleanly.")
+
+        
+    assert len(failures) == 0, (
+        f"\n\n!!! TEST FAILED !!!\n"
+        f"Total Failures: {len(failures)} out of {num_runs} runs.\n"
+        f"Summary of failures:\n" + "\n".join(failures)
+    )

@@ -76,7 +76,7 @@ module axis_packetizer #(
     logic output_data_tvalid_q, output_data_tvalid_d;
     logic s_axis_tvalid_seen_q, s_axis_tvalid_seen_d;
 
-    state_t control_state_d, control_state_q;
+    state_t control_state_d, control_state_q, control_state_qq;
     logic exit_payload_d, exit_payload_q;
 
 
@@ -91,6 +91,7 @@ module axis_packetizer #(
             packet_len_q <= '0;
             packet_id_q <= 16'b0;
             exit_payload_q <= 1'b0;
+            control_state_qq <= IDLE;
         end else begin
             crc_value_q <= crc_value_d;
             control_state_q <= control_state_d;
@@ -101,6 +102,7 @@ module axis_packetizer #(
             packet_len_q <= packet_len_d;
             packet_id_q <= packet_id_d;
             exit_payload_q <= exit_payload_d;
+            control_state_qq <= control_state_q;
         end
     end
 
@@ -139,6 +141,7 @@ module axis_packetizer #(
             S_AXIS_TREADY = 1'b1;
             if (S_AXIS_TVALID) begin
                 packet_len_d = S_PAYLOAD_LEN;
+                exit_payload_d = S_AXIS_TLAST;
                 control_state_d = WRITE_HEADER;
             end
         end else if (control_state_q[WRITE_HEADER_IDX]) begin
@@ -165,7 +168,9 @@ module axis_packetizer #(
             output_data_d = input_data_q;
             // Does below properly time tvalid s.t. data comes to a stop correctly if s_axis_tvalid drops in this state?
             // I don't think it does because TVALID could be high but we don't accept the data until s_axis_tready is high?
-            output_data_tvalid_d = s_axis_tvalid_seen_q;
+            // We need to set tvalid as high on first entrance always because 
+            if (!control_state_qq[STREAM_PAYLOAD_IDX]) output_data_tvalid_d = 1'b1;
+            else output_data_tvalid_d = s_axis_tvalid_seen_q;
             // If downstream can't accept data, we can't replace current data with new data => drop S_AXIS_TREADY.
             S_AXIS_TREADY = M_AXIS_TREADY; // Does this make sense?
             // Only update CRC on an accepted payload beat
@@ -173,8 +178,10 @@ module axis_packetizer #(
             if (S_AXIS_TLAST && !exit_payload_q) begin // may need to enter substate here instead, to wrap up last bits of data.
                 exit_payload_d = 1'b1;
             end
-            if (exit_payload_q && M_AXIS_TREADY && s_axis_tvalid_seen_q) begin
+            if (exit_payload_q && M_AXIS_TREADY && output_data_tvalid_q) begin
+                S_AXIS_TREADY = '0;
                 control_state_d = WRITE_CRC;
+                exit_payload_d = 1'b0;
             end
         end else if (control_state_q[WRITE_CRC_IDX]) begin
             output_data_d = crc_value_q;
