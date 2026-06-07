@@ -63,6 +63,8 @@ module axis_packetizer #(
     logic [31:0] crc_value_q, crc_value_d;
     logic [31:0] crc_out;
     logic crc_clear;
+    logic crc_hold;
+    logic crc_update;
 
     logic [15:0] packet_len_q, packet_len_d;
     logic [15:0] packet_id_q, packet_id_d;
@@ -86,6 +88,7 @@ module axis_packetizer #(
             s_axis_tvalid_seen_q <= '0;
             header_pos_q <= '0;
             packet_len_q <= '0;
+            packet_id_q <= 1'b0;
         end else begin
             crc_value_q <= crc_value_d;
             control_state_q <= control_state_d;
@@ -94,6 +97,7 @@ module axis_packetizer #(
             s_axis_tvalid_seen_q <= s_axis_tvalid_seen_d;
             header_pos_q <= header_pos_d;
             packet_len_q <= packet_len_d;
+            packet_id_q <= packet_id_d;
         end
     end
 
@@ -114,9 +118,9 @@ module axis_packetizer #(
     end
 
     always_comb begin
-        crc_value_d = crc_out;
+
         control_state_d = control_state_q;
-        s_axis_tvalid_seen_d = s_axis_tvalid_seen_q;
+        s_axis_tvalid_seen_d = S_AXIS_TVALID && S_AXIS_TREADY; //should be S_AXIS_TVALID or s_axis_tvalid_seen_q?
         S_AXIS_TREADY = 1'b0; // only set in specific states
         packet_id_d = packet_id_q;
         header_pos_d = header_pos_q;
@@ -124,21 +128,21 @@ module axis_packetizer #(
         packet_len_d = packet_len_q;
         output_data_tlast_d = '0; // Qs or zeros?
         output_data_tvalid_d = '0;
-        if (crc_clear) begin
-            crc_value_d = 32'hFFFFFFFF;
-        end
+        crc_clear = 1'b0;
+        crc_hold = 1'b0;
+        crc_update = 1'b0;
         if (control_state_q[IDLE_IDX]) begin
             S_AXIS_TREADY = 1'b1;
             if (S_AXIS_TVALID) begin
-                s_axis_tvalid_seen_d = 1'b1;
                 packet_len_d = S_PAYLOAD_LEN;
                 control_state_d = WRITE_HEADER;
             end
         end else if (control_state_q[WRITE_HEADER_IDX]) begin
             S_AXIS_TREADY = 1'b0; //Hold off accepting more data while header is written
-            output_data_tvalid_d = 1'b1; //This state will always have data ready
+            output_data_tvalid_d = 1'b1; //This state will always have data ready?
             case (header_pos_q)
                 1'b0: begin
+                    // Is this going to produce a weird result? Or Okay with valid signaling?
                     output_data_d = {16'h63df, packet_id_q};
                     if (M_AXIS_TREADY) header_pos_d = 1'b1;
                 end
@@ -154,9 +158,42 @@ module axis_packetizer #(
                 end
             endcase
         end else if (control_state_q[STREAM_PAYLOAD_IDX]) begin
-            
+            output_data_d = input_data_q;
+            // Does below properly time tvalid s.t. data comes to a stop correctly if s_axis_tvalid drops in this state?
+            // I don't think it does because TVALID could be high but we don't accept the data until s_axis_tready is high?
+            output_data_tvalid_d = s_axis_tvalid_seen_q;
+            // If downstream can't accept data, we can't replace current data with new data => drop S_AXIS_TREADY.
+            S_AXIS_TREADY = M_AXIS_TREADY; // Does this make sense?
+            // Only update CRC on an accepted payload beat
+            crc_update = (output_data_tvalid_q && M_AXIS_TREADY);
+            if (S_AXIS_TLAST) begin // may need to enter substate here instead, to wrap up last bits of data.
+                control_state_d = WRITE_CRC;
+            end
         end else if (control_state_q[WRITE_CRC_IDX]) begin
-            
+            output_data_d = crc_value_q;
+            output_data_tvalid_d = 1'b1;
+            output_data_tlast_d = 1'b1;
+            crc_hold = 1'b1;
+            // In WRITE_CRC, data pipeline must necessarily be empty, so would be ready to accept new data?
+            // No, because if M_AXIS_TREADY is low, could still fill up pipeline.
+            S_AXIS_TREADY = 1'b0; // 1'b0 for now to not miss the IDLE exit transition, but should be made more robust
+            if (M_AXIS_TREADY) begin //Final data transfer
+                crc_hold = 1'b0;
+                control_state_d = IDLE;
+                crc_clear = 1'b1;
+                packet_id_d = packet_id_q + 1'b1;
+            end
+        end
+
+        if (crc_clear) begin
+            crc_value_d = 32'hFFFFFFFF;
+        end else if (crc_hold) begin
+            crc_value_d = crc_value_q;
+        end else if (crc_update) begin
+            crc_value_d = crc_out;
+        end else begin
+            // No update: hold current value
+            crc_value_d = crc_value_q;
         end
 
     end
@@ -164,11 +201,12 @@ module axis_packetizer #(
     crc32_parallel crc (
         .crcIn(crc_value_q),
         .crcOut(crc_out),
-        .data('0)
+        .data(input_data_q)
     );
 
     assign M_AXIS_TLAST = output_data_tlast_q;
     assign M_AXIS_TVALID = output_data_tvalid_q;
     assign M_AXIS_TDATA = output_data_q;
+    assign M_AXIS_TKEEP = {KEEP_WIDTH{1'b1}};
 
 endmodule
