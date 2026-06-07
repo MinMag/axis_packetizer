@@ -25,6 +25,7 @@ src/sim/sim_build/
 src/sim/__pycache__/
 src/sim/results.xml
 src/sim/*.vcd
+*.fst
 
 *.pdf
 
