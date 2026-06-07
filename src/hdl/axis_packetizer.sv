@@ -77,6 +77,7 @@ module axis_packetizer #(
     logic s_axis_tvalid_seen_q, s_axis_tvalid_seen_d;
 
     state_t control_state_d, control_state_q;
+    logic exit_payload_d, exit_payload_q;
 
 
     always_ff @(posedge CLK or negedge RST_N) begin
@@ -89,6 +90,7 @@ module axis_packetizer #(
             header_pos_q <= '0;
             packet_len_q <= '0;
             packet_id_q <= 16'b0;
+            exit_payload_q <= 1'b0;
         end else begin
             crc_value_q <= crc_value_d;
             control_state_q <= control_state_d;
@@ -98,6 +100,7 @@ module axis_packetizer #(
             header_pos_q <= header_pos_d;
             packet_len_q <= packet_len_d;
             packet_id_q <= packet_id_d;
+            exit_payload_q <= exit_payload_d;
         end
     end
 
@@ -131,6 +134,7 @@ module axis_packetizer #(
         crc_clear = 1'b0;
         crc_hold = 1'b0;
         crc_update = 1'b0;
+        exit_payload_d = exit_payload_q;
         if (control_state_q[IDLE_IDX]) begin
             S_AXIS_TREADY = 1'b1;
             if (S_AXIS_TVALID) begin
@@ -166,7 +170,10 @@ module axis_packetizer #(
             S_AXIS_TREADY = M_AXIS_TREADY; // Does this make sense?
             // Only update CRC on an accepted payload beat
             crc_update = (output_data_tvalid_q && M_AXIS_TREADY);
-            if (S_AXIS_TLAST) begin // may need to enter substate here instead, to wrap up last bits of data.
+            if (S_AXIS_TLAST && !exit_payload_q) begin // may need to enter substate here instead, to wrap up last bits of data.
+                exit_payload_d = 1'b1;
+            end
+            if (exit_payload_q && M_AXIS_TREADY && s_axis_tvalid_seen_q) begin
                 control_state_d = WRITE_CRC;
             end
         end else if (control_state_q[WRITE_CRC_IDX]) begin

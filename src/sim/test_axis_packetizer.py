@@ -35,8 +35,6 @@ async def test_baseline_packet(dut):
 async def test_no_axis_violations(dut):
     """Test that there are no AXI-Stream protocol violations under normal operation"""
 
-
-
     # 1. Start a 250 MHz clock domain (4.0 ns period)
     cocotb.start_soon(Clock(dut.CLK, 4.0, unit="ns").start())
     
