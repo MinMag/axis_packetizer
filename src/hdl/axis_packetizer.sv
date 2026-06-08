@@ -75,6 +75,7 @@ module axis_packetizer #(
     logic output_data_tlast_q, output_data_tlast_d;
     logic output_data_tvalid_q, output_data_tvalid_d;
     logic s_axis_tvalid_seen_q, s_axis_tvalid_seen_d;
+    logic skip_payload_d, skip_payload_q;
 
     state_t control_state_d, control_state_q, control_state_qq;
     logic exit_payload_d, exit_payload_q;
@@ -85,31 +86,34 @@ module axis_packetizer #(
             crc_value_q <= 32'hFFFFFFFF;
             control_state_q <= IDLE;
             output_data_tvalid_q <= '0;
-            output_data_tlast_q <= '0;
+            // output_data_tlast_q <= '0;
             s_axis_tvalid_seen_q <= '0;
             header_pos_q <= '0;
             packet_len_q <= '0;
             packet_id_q <= 16'b0;
             exit_payload_q <= 1'b0;
             control_state_qq <= IDLE;
+            skip_payload_q <= '0;
         end else begin
             crc_value_q <= crc_value_d;
             control_state_q <= control_state_d;
             output_data_tvalid_q <= output_data_tvalid_d;
-            output_data_tlast_q <= output_data_tlast_d;
+            // output_data_tlast_q <= output_data_tlast_d;
             s_axis_tvalid_seen_q <= s_axis_tvalid_seen_d;
             header_pos_q <= header_pos_d;
             packet_len_q <= packet_len_d;
             packet_id_q <= packet_id_d;
             exit_payload_q <= exit_payload_d;
             control_state_qq <= control_state_q;
+            skip_payload_q <= skip_payload_d;
         end
     end
 
     always_ff @(posedge CLK) begin
-        // Only capture new data when the downstream bus is moving (no data stall)
-        if (M_AXIS_TREADY) begin
+        // Only capture new output data when the downstream accepts it
+        if (1) begin
             output_data_q <= output_data_d;
+            output_data_tlast_q <= output_data_tlast_d;
         end
     end
 
@@ -137,12 +141,18 @@ module axis_packetizer #(
         crc_hold = 1'b0;
         crc_update = 1'b0;
         exit_payload_d = exit_payload_q;
+        skip_payload_d = skip_payload_q;
         if (control_state_q[IDLE_IDX]) begin
             S_AXIS_TREADY = 1'b1;
             if (S_AXIS_TVALID) begin
                 packet_len_d = S_PAYLOAD_LEN;
                 exit_payload_d = S_AXIS_TLAST;
                 control_state_d = WRITE_HEADER;
+                // We need to immediately propagate the output on the next cycle
+                output_data_d = {16'h63df, packet_id_q};
+                output_data_tvalid_d = 1'b1;
+                if (S_AXIS_TLAST) skip_payload_d = '1;
+
             end
         end else if (control_state_q[WRITE_HEADER_IDX]) begin
             S_AXIS_TREADY = 1'b0; //Hold off accepting more data while header is written
@@ -151,13 +161,20 @@ module axis_packetizer #(
                 1'b0: begin
                     // Is this going to produce a weird result? Or Okay with valid signaling?
                     output_data_d = {16'h63df, packet_id_q};
-                    if (M_AXIS_TREADY) header_pos_d = 1'b1;
+                    if (M_AXIS_TREADY) begin
+                        header_pos_d = 1'b1;
+                        output_data_d = {packet_len_q, 16'h0};
+                    end
                 end
                 1'b1: begin
                     output_data_d = {packet_len_q, 16'h0};
                     if (M_AXIS_TREADY) begin
                         header_pos_d = 1'b0;
-                        control_state_d = STREAM_PAYLOAD;
+                        control_state_d = skip_payload_q ? WRITE_CRC : STREAM_PAYLOAD;
+                        S_AXIS_TREADY = !skip_payload_q;
+                        output_data_d = input_data_q;
+                        skip_payload_d = '0;
+                        if (S_AXIS_TLAST) exit_payload_d = '1;
                     end
                 end
                 default: begin
@@ -165,17 +182,19 @@ module axis_packetizer #(
                 end
             endcase
         end else if (control_state_q[STREAM_PAYLOAD_IDX]) begin
-            output_data_d = input_data_q;
+            //Only step data if previous data has been accepted?
+            output_data_d = (M_AXIS_TREADY && output_data_tvalid_q) ? input_data_q : output_data_q;
             // Does below properly time tvalid s.t. data comes to a stop correctly if s_axis_tvalid drops in this state?
             // I don't think it does because TVALID could be high but we don't accept the data until s_axis_tready is high?
             // We need to set tvalid as high on first entrance always because 
             if (!control_state_qq[STREAM_PAYLOAD_IDX]) output_data_tvalid_d = 1'b1;
-            else output_data_tvalid_d = s_axis_tvalid_seen_q;
+            else output_data_tvalid_d = 1'b1;
             // If downstream can't accept data, we can't replace current data with new data => drop S_AXIS_TREADY.
             S_AXIS_TREADY = M_AXIS_TREADY; // Does this make sense?
             // Only update CRC on an accepted payload beat
             crc_update = (output_data_tvalid_q && M_AXIS_TREADY);
-            if (S_AXIS_TLAST && !exit_payload_q) begin // may need to enter substate here instead, to wrap up last bits of data.
+            // Mark that the last payload beat was accepted by the slave
+            if (S_AXIS_TVALID && S_AXIS_TREADY && S_AXIS_TLAST) begin
                 exit_payload_d = 1'b1;
             end
             if (exit_payload_q && M_AXIS_TREADY && output_data_tvalid_q) begin
@@ -184,16 +203,25 @@ module axis_packetizer #(
                 exit_payload_d = 1'b0;
             end
         end else if (control_state_q[WRITE_CRC_IDX]) begin
-            output_data_d = crc_value_q;
-            output_data_tvalid_d = 1'b1;
-            output_data_tlast_d = 1'b1;
+            if (M_AXIS_TREADY && M_AXIS_TVALID) begin
+                output_data_d = crc_value_q;
+                output_data_tvalid_d = 1'b1;
+                // Only assert TLAST when the CRC beat will actually be transferred
+                output_data_tlast_d = 1'b1;
+            end else begin
+                output_data_d = output_data_q;
+                output_data_tvalid_d = output_data_tvalid_q;
+                output_data_tlast_d = output_data_tlast_q;
+            end
             crc_hold = 1'b1;
             // In WRITE_CRC, data pipeline must necessarily be empty, so would be ready to accept new data?
             // No, because if M_AXIS_TREADY is low, could still fill up pipeline.
             S_AXIS_TREADY = 1'b0; // 1'b0 for now to not miss the IDLE exit transition, but should be made more robust
-            if (M_AXIS_TREADY) begin //Final data transfer
+            if (M_AXIS_TREADY && output_data_tlast_q && output_data_tvalid_q && control_state_qq[WRITE_CRC_IDX]) begin //Final data transfer
                 crc_hold = 1'b0;
                 control_state_d = IDLE;
+                output_data_tlast_d = 1'b0;
+                output_data_tvalid_d = 1'b0; //Idle state next, no way to have valid output data yet currently
                 crc_clear = 1'b1;
                 packet_id_d = packet_id_q + 1'b1;
             end
