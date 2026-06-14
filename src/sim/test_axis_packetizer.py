@@ -69,7 +69,7 @@ async def run_packetizer_regression(dut, num_packets=50, sink_pause_gen=None, so
     
 
     axis_source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "S_AXIS"), dut.CLK, dut.RST_N, reset_active_level=False)
-    axis_sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "M_AXIS"), dut.CLK, dut.RST_N,reset_active_level=False)
+    axis_sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "M_AXIS"), dut.M_AXIS_ACLK, dut.RST_N,reset_active_level=False)
 
     if sink_pause_gen is not None:
         axis_sink.set_pause_generator(sink_pause_gen)
@@ -157,7 +157,7 @@ async def test_data_transfer_no_backpressure_bubbled(dut):
     
 
     axis_source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "S_AXIS"), dut.CLK, dut.RST_N, reset_active_level=False)
-    axis_sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "M_AXIS"), dut.CLK, dut.RST_N,reset_active_level=False)
+    axis_sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "M_AXIS"), dut.M_AXIS_ACLK, dut.RST_N,reset_active_level=False)
 
     await setup_reset(dut)
     await RisingEdge(dut.CLK)

@@ -40,6 +40,7 @@ module axis_packetizer #(
     output logic                  M_AXIS_TVALID,
     input  logic                  M_AXIS_TREADY,
     output logic                  M_AXIS_TLAST,
+    output logic                  M_AXIS_ACLK,
 
     //Implementation Specific Signals
     input  logic [15:0]           S_PAYLOAD_LEN
@@ -86,7 +87,7 @@ module axis_packetizer #(
             crc_value_q <= 32'hFFFFFFFF;
             control_state_q <= IDLE;
             output_data_tvalid_q <= '0;
-            // output_data_tlast_q <= '0;
+            output_data_tlast_q <= '0;
             s_axis_tvalid_seen_q <= '0;
             header_pos_q <= '0;
             packet_len_q <= '0;
@@ -98,7 +99,7 @@ module axis_packetizer #(
             crc_value_q <= crc_value_d;
             control_state_q <= control_state_d;
             output_data_tvalid_q <= output_data_tvalid_d;
-            // output_data_tlast_q <= output_data_tlast_d;
+            output_data_tlast_q <= output_data_tlast_d;
             s_axis_tvalid_seen_q <= s_axis_tvalid_seen_d;
             header_pos_q <= header_pos_d;
             packet_len_q <= packet_len_d;
@@ -113,7 +114,7 @@ module axis_packetizer #(
         // Only capture new output data when the downstream accepts it
         if (1) begin
             output_data_q <= output_data_d;
-            output_data_tlast_q <= output_data_tlast_d;
+            // output_data_tlast_q <= output_data_tlast_d;
         end
     end
 
@@ -203,7 +204,7 @@ module axis_packetizer #(
                 exit_payload_d = 1'b0;
             end
         end else if (control_state_q[WRITE_CRC_IDX]) begin
-            if (M_AXIS_TREADY && M_AXIS_TVALID) begin
+            if (M_AXIS_TREADY && output_data_tvalid_q) begin
                 output_data_d = crc_value_q;
                 output_data_tvalid_d = 1'b1;
                 // Only assert TLAST when the CRC beat will actually be transferred
@@ -246,9 +247,48 @@ module axis_packetizer #(
         .data(input_data_q)
     );
 
-    assign M_AXIS_TLAST = output_data_tlast_q;
-    assign M_AXIS_TVALID = output_data_tvalid_q;
-    assign M_AXIS_TDATA = output_data_q;
+
+genvar i;
+generate
+    for (i = 0; i < 32; i++) begin : gen_tdata_out
+        ODDRE1 #(
+            .SIM_DEVICE("ULTRASCALE_PLUS")
+        ) tdata_forward_inst (
+            .Q(M_AXIS_TDATA[i]),
+            .C(CLK),
+            .D1(output_data_d[i]), // Feed the same data bit to both DDR ports
+            .D2(output_data_q[i]), // to keep the value stable across the whole cycle
+            .SR(1'b0)
+        );
+    end
+endgenerate
+
+ODDRE1 #(
+    .SIM_DEVICE("ULTRASCALE_PLUS")
+) tlast_forward_inst (
+    .Q(M_AXIS_TLAST), .C(CLK), .D1(output_data_tlast_d), .D2(output_data_tlast_q), .SR(1'b0)
+);
+
+ODDRE1 #(
+    .SIM_DEVICE("ULTRASCALE_PLUS")
+) tvalid_forward_inst (
+    .Q(M_AXIS_TVALID), .C(CLK), .D1(output_data_tvalid_d), .D2(output_data_tvalid_q),
+    .SR(1'b0)
+);
+
+    ODDRE1 #(
+    .SIM_DEVICE("ULTRASCALE_PLUS")
+) rx_clk_forward_inst (
+    .Q  (M_AXIS_ACLK),  // Connects directly to your new top-level output port
+    .C  (CLK),          // Driven by your standard INTERNAL 250 MHz system clock
+    .D1 (1'b1),         // Tied High: Out-of-phase or edge-aligned options
+    .D2 (1'b0),         // Tied Low
+    .SR (1'b0)          // No reset required for continuous clocking
+);
+
+    // assign M_AXIS_TLAST = output_data_tlast_q;
+    // assign M_AXIS_TVALID = output_data_tvalid_q;
+    // assign M_AXIS_TDATA = output_data_q;
     assign M_AXIS_TKEEP = {KEEP_WIDTH{1'b1}};
 
 endmodule

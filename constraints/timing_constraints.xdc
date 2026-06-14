@@ -14,8 +14,8 @@ set_input_delay -clock CLK -min 0.500 [get_ports S_PAYLOAD_LEN[*]]
 set OUT_MAX 1.600
 set OUT_MIN 0.200
 
-set_output_delay -clock CLK -max $OUT_MAX [get_ports {M_AXIS_TVALID M_AXIS_TDATA[*] M_AXIS_TLAST M_AXIS_TKEEP[*]}]
-set_output_delay -clock CLK -min $OUT_MIN [get_ports {M_AXIS_TVALID M_AXIS_TDATA[*] M_AXIS_TLAST M_AXIS_TKEEP[*]}]
+# set_output_delay -clock CLK -max $OUT_MAX [get_ports {M_AXIS_TVALID M_AXIS_TDATA[*] M_AXIS_TLAST M_AXIS_TKEEP[*]}]
+# set_output_delay -clock CLK -min $OUT_MIN [get_ports {M_AXIS_TVALID M_AXIS_TDATA[*] M_AXIS_TLAST M_AXIS_TKEEP[*]}]
 
 # Apply constraints to the upstream backpressure signal (Slave Ready)
 set_output_delay -clock CLK -max $OUT_MAX [get_ports S_AXIS_TREADY]
@@ -25,6 +25,16 @@ set_output_delay -clock CLK -min $OUT_MIN [get_ports S_AXIS_TREADY]
 set_input_delay -clock CLK -max $IN_MAX [get_ports M_AXIS_TREADY]
 set_input_delay -clock CLK -min $IN_MIN [get_ports M_AXIS_TREADY]
 
+# set_property IOB TRUE [get_cells output_data_q_reg[*]]
+
+create_generated_clock -name fwd_m_axis_aclk \
+                       -source [get_ports CLK] \
+                       -divide_by 1 \
+                       [get_ports M_AXIS_ACLK]
+
+
+set_output_delay -clock fwd_m_axis_aclk -max $OUT_MAX [get_ports {M_AXIS_TVALID M_AXIS_TDATA[*] M_AXIS_TLAST M_AXIS_TKEEP[*]}]
+set_output_delay -clock fwd_m_axis_aclk -min $OUT_MIN [get_ports {M_AXIS_TVALID M_AXIS_TDATA[*] M_AXIS_TLAST M_AXIS_TKEEP[*]}]
 
 # ==============================================================================
 # 4. ASYNCHRONOUS / TIMING EXCEPTIONS
