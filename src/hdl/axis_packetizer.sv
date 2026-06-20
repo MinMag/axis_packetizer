@@ -80,6 +80,8 @@ module axis_packetizer #(
 
     state_t control_state_d, control_state_q, control_state_qq;
     logic exit_payload_d, exit_payload_q;
+    logic input_tvalid_q, input_tvalid_d;
+    logic valid_capture;
 
 
     always_ff @(posedge CLK or negedge RST_N) begin
@@ -95,6 +97,7 @@ module axis_packetizer #(
             exit_payload_q <= 1'b0;
             control_state_qq <= IDLE;
             skip_payload_q <= '0;
+            input_tvalid_q <= '0;
         end else begin
             crc_value_q <= crc_value_d;
             control_state_q <= control_state_d;
@@ -107,6 +110,7 @@ module axis_packetizer #(
             exit_payload_q <= exit_payload_d;
             control_state_qq <= control_state_q;
             skip_payload_q <= skip_payload_d;
+            input_tvalid_q <= input_tvalid_d;
         end
     end
 
@@ -124,8 +128,13 @@ module axis_packetizer #(
         // into your internal logic, saving dynamic power.
         if (S_AXIS_TVALID && S_AXIS_TREADY) begin
             input_data_q <= S_AXIS_TDATA;
+            // input_tvalid_q <= 1'b1;
+        end else begin
+            // input_tvalid_q <= 1'b0;
         end
     end
+
+    assign valid_capture = S_AXIS_TVALID && S_AXIS_TREADY;
 
     always_comb begin
 
@@ -141,6 +150,7 @@ module axis_packetizer #(
         crc_clear = 1'b0;
         crc_hold = 1'b0;
         crc_update = 1'b0;
+        input_tvalid_d = input_tvalid_q;
         exit_payload_d = exit_payload_q;
         skip_payload_d = skip_payload_q;
         if (control_state_q[IDLE_IDX]) begin
@@ -149,6 +159,7 @@ module axis_packetizer #(
                 packet_len_d = S_PAYLOAD_LEN;
                 exit_payload_d = S_AXIS_TLAST;
                 control_state_d = WRITE_HEADER;
+                input_tvalid_d = '1; //mark input_tdata as valid non-transmitted data
                 // We need to immediately propagate the output on the next cycle
                 output_data_d = {16'h63df, packet_id_q};
                 output_data_tvalid_d = 1'b1;
@@ -174,6 +185,7 @@ module axis_packetizer #(
                         control_state_d = skip_payload_q ? WRITE_CRC : STREAM_PAYLOAD;
                         S_AXIS_TREADY = !skip_payload_q;
                         output_data_d = input_data_q;
+                        input_tvalid_d = valid_capture;
                         skip_payload_d = '0;
                         if (S_AXIS_TLAST) exit_payload_d = '1;
                     end
@@ -184,14 +196,37 @@ module axis_packetizer #(
             endcase
         end else if (control_state_q[STREAM_PAYLOAD_IDX]) begin
             //Only step data if previous data has been accepted?
-            output_data_d = (M_AXIS_TREADY && output_data_tvalid_q) ? input_data_q : output_data_q;
+            // output_data_d = (M_AXIS_TREADY && output_data_tvalid_q) ? input_data_q : output_data_q;
             // Does below properly time tvalid s.t. data comes to a stop correctly if s_axis_tvalid drops in this state?
             // I don't think it does because TVALID could be high but we don't accept the data until s_axis_tready is high?
             // We need to set tvalid as high on first entrance always because 
-            if (!control_state_qq[STREAM_PAYLOAD_IDX]) output_data_tvalid_d = 1'b1;
-            else output_data_tvalid_d = 1'b1;
+            // if (!control_state_qq[STREAM_PAYLOAD_IDX]) output_data_tvalid_d = 1'b1;
+            // else output_data_tvalid_d = 1'b1;
+            // input data will be valid if 
+            if (output_data_tvalid_q) begin
+                if (M_AXIS_TREADY) begin
+                    //Old data accepted, we need to decide if we have more data to push out or need to drop tvalid
+                    input_tvalid_d = valid_capture;
+                    output_data_d = input_data_q;
+                    output_data_tvalid_d = input_tvalid_q;
+                end else begin
+                    // No transfer, we need to hold previous values
+                    input_tvalid_d = input_tvalid_q;
+                    output_data_d = output_data_q;
+                    output_data_tvalid_d = output_data_tvalid_q;
+                end
+            end else begin
+                //We aren't transferring anything this round, do we have something for next round?
+                output_data_d = input_data_q;
+                output_data_tvalid_d = input_tvalid_q;
+                input_tvalid_d = valid_capture;
+            end
+            // input_tvalid_d = S_AXIS_TREADY && S_AXIS_TVALID;
+            // output_data_tvalid_d = (M_AXIS_TREADY && output_data_tvalid_q) ? input_tvalid_q : output_data_tvalid_q;
             // If downstream can't accept data, we can't replace current data with new data => drop S_AXIS_TREADY.
-            S_AXIS_TREADY = M_AXIS_TREADY; // Does this make sense?
+            // Don't be ready once we are exiting payload, since next data will need to come into idle
+            // TODO: We could potentially start next transistion here and skip IDLE, move directly to write_header
+            S_AXIS_TREADY = (M_AXIS_TREADY || !input_tvalid_q) && !exit_payload_q;
             // Only update CRC on an accepted payload beat
             crc_update = (output_data_tvalid_q && M_AXIS_TREADY);
             // Mark that the last payload beat was accepted by the slave
@@ -204,7 +239,7 @@ module axis_packetizer #(
                 exit_payload_d = 1'b0;
             end
         end else if (control_state_q[WRITE_CRC_IDX]) begin
-            if (M_AXIS_TREADY && output_data_tvalid_q) begin
+            if ((M_AXIS_TREADY && output_data_tvalid_q) || !(output_data_tvalid_q)) begin
                 output_data_d = crc_value_q;
                 output_data_tvalid_d = 1'b1;
                 // Only assert TLAST when the CRC beat will actually be transferred

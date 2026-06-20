@@ -5,6 +5,7 @@ from cocotb.triggers import Timer, RisingEdge
 from cocotb.clock import Clock
 from cocotbext.axi import AxiStreamFrame, AxiStreamSource, AxiStreamSink, AxiStreamBus
 import itertools
+import numpy as np
 
 PACKET_OVERHEAD = 12
 HEADER_SIZE = 8
@@ -139,7 +140,7 @@ async def test_data_transfer_no_backpressure(dut):
     await run_packetizer_regression(dut, num_packets=num_runs)
 
 @cocotb.test(timeout_time=100, timeout_unit="us")
-async def test_data_transfer_receiver_backpressure(dut):
+async def test_data_transfer_receiver_backpressure_10_pattern(dut):
     """Test data transfer with backpressure on the receiving device"""
 
     num_runs = random.randint(1,20)
@@ -147,6 +148,30 @@ async def test_data_transfer_receiver_backpressure(dut):
     backpressure_pattern = looping_pause_generator([1,0,1,0]) 
 
     await run_packetizer_regression(dut, num_packets=num_runs, sink_pause_gen=backpressure_pattern)
+
+@cocotb.test(timeout_time=100, timeout_unit="us")
+async def test_functional_receiver_backpressure_rand(dut):
+    """Test data transfer with random receiving backpressure"""
+
+    num_runs = random.randint(1,20)
+
+    loop_pattern = np.random.randint(0,2,size=10)
+
+    backpressure_pattern = looping_pause_generator(loop_pattern.tolist())
+
+    await run_packetizer_regression(dut, num_packets=num_runs, sink_pause_gen=backpressure_pattern)
+
+@cocotb.test(timeout_time=100, timeout_unit="us")
+async def test_functional_transmitter_frontpressure_rand(dut):
+    """Test data transfer with random transmitter frontpressure"""
+
+    num_runs = random.randint(1,20)
+
+    loop_pattern = np.random.randint(0,2,size=10)
+
+    frontpressure_pattern = looping_pause_generator(loop_pattern.tolist())
+
+    await run_packetizer_regression(dut, num_packets=num_runs, source_pause_gen=frontpressure_pattern)
 
 @cocotb.test(timeout_time=1000, timeout_unit="us")
 async def test_data_transfer_no_backpressure_bubbled(dut):
