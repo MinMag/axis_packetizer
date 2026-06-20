@@ -249,7 +249,7 @@ module axis_packetizer #(
             // TODO: We could potentially start next transistion here and skip IDLE, move directly to write_header
             S_AXIS_TREADY = (M_AXIS_TREADY || !input_tvalid_q) && !exit_payload_q;
             // Only update CRC on an accepted payload beat
-            crc_update = (output_data_tvalid_q && M_AXIS_TREADY);
+            crc_update = (output_data_tvalid_q && M_AXIS_TREADY && input_tvalid_q) || (!output_data_tvalid_q && input_tvalid_q);
             // Mark that the last payload beat was accepted by the slave
             if (S_AXIS_TVALID && S_AXIS_TREADY && S_AXIS_TLAST) begin
                 exit_payload_d = 1'b1;

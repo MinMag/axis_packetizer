@@ -225,9 +225,24 @@ async def functional_transmitter_receiver_backpressure_rand(dut):
 async def functional_basic_crc_check(dut):
     """Check CRC is correct after simple data transfers"""
 
-    num_runs = random.randint(1,20)
+    num_runs = random.randint(1,MAX_RUNS)
 
     await run_packetizer_regression(dut, num_packets=num_runs, crc_check=True)
+
+@cocotb.test(timeout_time=TEST_TIMEOUT_US, timeout_unit="us")
+async def functional_busy_pattern_rand_crc_check(dut):
+    """Check CRC is correct with random busyness"""
+
+    num_runs = random.randint(1,MAX_RUNS)
+
+    loop_pattern_master = [random.randint(0,1) for _ in range(10)]
+
+    loop_pattern_slave = [random.randint(0,1) for _ in range(10)]
+
+    master_pressure_pattern = looping_pause_generator(loop_pattern_master)
+    slave_pressure_pattern = looping_pause_generator(loop_pattern_slave)
+
+    await run_packetizer_regression(dut, num_packets=num_runs, sink_pause_gen=slave_pressure_pattern, source_pause_gen=master_pressure_pattern, crc_check=True)
 
 @cocotb.test(timeout_time=1000, timeout_unit="us")
 async def test_data_transfer_no_backpressure_bubbled(dut):
