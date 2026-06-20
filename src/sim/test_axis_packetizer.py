@@ -10,7 +10,7 @@ import numpy as np
 PACKET_OVERHEAD = 12
 HEADER_SIZE = 8
 
-MAX_RUNS = 20
+MAX_RUNS = 100
 
 def looping_pause_generator(pattern):
     """Generates an infinite cycle-by-cycle pause profile from a list pattern"""
@@ -135,7 +135,7 @@ async def test_baseline_packet(dut):
 
 @cocotb.test(timeout_time=100, timeout_unit="us")
 async def test_data_transfer_no_backpressure(dut):
-    """Test that there are no AXI-Stream protocol violations under normal operation"""
+    """Test that there are no AXI-Stream protocol viooutput_data_tvalid_q && M_AXIS_TREADYlations under normal operation"""
 
     num_runs = random.randint(1,200)
 
@@ -145,7 +145,7 @@ async def test_data_transfer_no_backpressure(dut):
 async def test_data_transfer_receiver_backpressure_10_pattern(dut):
     """Test data transfer with backpressure on the receiving device"""
 
-    num_runs = random.randint(1,20)
+    num_runs = random.randint(1,MAX_RUNS)
 
     backpressure_pattern = looping_pause_generator([1,0,1,0]) 
 
@@ -155,7 +155,7 @@ async def test_data_transfer_receiver_backpressure_10_pattern(dut):
 async def test_functional_receiver_backpressure_rand(dut):
     """Test data transfer with random receiving backpressure"""
 
-    num_runs = random.randint(1,20)
+    num_runs = random.randint(1,MAX_RUNS)
 
     loop_pattern = np.random.randint(0,2,size=10)
 
@@ -167,7 +167,7 @@ async def test_functional_receiver_backpressure_rand(dut):
 async def test_functional_transmitter_frontpressure_rand(dut):
     """Test data transfer with random transmitter frontpressure"""
 
-    num_runs = random.randint(1,20)
+    num_runs = random.randint(1,MAX_RUNS)
 
     loop_pattern = np.random.randint(0,2,size=10)
 
@@ -180,7 +180,7 @@ async def functional_transmitter_receiver_backpressure_rand(dut):
     """Test data transfer correctness with random transmitter and receiver throttling"""
 
 
-    num_runs = random.randint(1,20)
+    num_runs = random.randint(1,MAX_RUNS)
 
     loop_pattern_master = [random.randint(0,1) for _ in range(10)]
 
@@ -208,7 +208,7 @@ async def test_data_transfer_no_backpressure_bubbled(dut):
     
     # 7. Wait for the out-of-context master interface to capture the fully processed frame
     failures = []
-    num_runs = random.randint(1,200)
+    num_runs = random.randint(1,MAX_RUNS)
 
     for packet_id in range(num_runs):
         num_transfers = random.randint(1,64)
