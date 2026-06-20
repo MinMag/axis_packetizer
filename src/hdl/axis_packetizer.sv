@@ -83,6 +83,8 @@ module axis_packetizer #(
     logic input_tvalid_q, input_tvalid_d;
     logic valid_capture;
 
+    logic transfer_next_out;
+
 
     always_ff @(posedge CLK or negedge RST_N) begin
         if (!RST_N) begin
@@ -135,6 +137,7 @@ module axis_packetizer #(
     end
 
     assign valid_capture = S_AXIS_TVALID && S_AXIS_TREADY;
+    assign transfer_next_out = (output_data_tvalid_q && M_AXIS_TREADY) || !output_data_tvalid_q;
 
     always_comb begin
 
@@ -203,15 +206,16 @@ module axis_packetizer #(
             // if (!control_state_qq[STREAM_PAYLOAD_IDX]) output_data_tvalid_d = 1'b1;
             // else output_data_tvalid_d = 1'b1;
             // input data will be valid if 
+            //TODO: maybe break the input data signals into a fifo-like structure...
             if (output_data_tvalid_q) begin
                 if (M_AXIS_TREADY) begin
                     //Old data accepted, we need to decide if we have more data to push out or need to drop tvalid
-                    input_tvalid_d = valid_capture;
+                    // input_tvalid_d = valid_capture;
                     output_data_d = input_data_q;
                     output_data_tvalid_d = input_tvalid_q;
                 end else begin
                     // No transfer, we need to hold previous values
-                    input_tvalid_d = input_tvalid_q;
+                    // input_tvalid_d = input_tvalid_q;
                     output_data_d = output_data_q;
                     output_data_tvalid_d = output_data_tvalid_q;
                 end
@@ -219,6 +223,20 @@ module axis_packetizer #(
                 //We aren't transferring anything this round, do we have something for next round?
                 output_data_d = input_data_q;
                 output_data_tvalid_d = input_tvalid_q;
+                // input_tvalid_d = valid_capture;
+            end
+            // if (input_tvalid_q) begin
+            //     if (output_data_tvalid_q && M_AXIS_TREADY) begin // && M_AXIS_TREADY -> may be important sometimes
+            //         // we are going to push out the current input_data_q/tvalid_q, so try to catch new data
+            //         input_tvalid_d = valid_capture;
+            //     end else begin
+            //         input_tvalid_d = input_tvalid_q;
+            //     end
+            // end else begin
+            //     // we have no valid data in the register now, so always try to capture new valid data.
+            //     input_tvalid_d = valid_capture;
+            // end
+            if (transfer_next_out || !input_tvalid_q) begin
                 input_tvalid_d = valid_capture;
             end
             // input_tvalid_d = S_AXIS_TREADY && S_AXIS_TVALID;

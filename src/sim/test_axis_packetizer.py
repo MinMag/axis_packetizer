@@ -10,6 +10,8 @@ import numpy as np
 PACKET_OVERHEAD = 12
 HEADER_SIZE = 8
 
+MAX_RUNS = 20
+
 def looping_pause_generator(pattern):
     """Generates an infinite cycle-by-cycle pause profile from a list pattern"""
     return itertools.cycle(pattern)
@@ -172,6 +174,22 @@ async def test_functional_transmitter_frontpressure_rand(dut):
     frontpressure_pattern = looping_pause_generator(loop_pattern.tolist())
 
     await run_packetizer_regression(dut, num_packets=num_runs, source_pause_gen=frontpressure_pattern)
+
+@cocotb.test(timeout_time=100, timeout_unit="us")
+async def functional_transmitter_receiver_backpressure_rand(dut):
+    """Test data transfer correctness with random transmitter and receiver throttling"""
+
+
+    num_runs = random.randint(1,20)
+
+    loop_pattern_master = [random.randint(0,1) for _ in range(10)]
+
+    loop_pattern_slave = [random.randint(0,1) for _ in range(10)]
+
+    master_pressure_pattern = looping_pause_generator(loop_pattern_master)
+    slave_pressure_pattern = looping_pause_generator(loop_pattern_slave)
+
+    await run_packetizer_regression(dut, num_packets=num_runs, sink_pause_gen=slave_pressure_pattern, source_pause_gen=master_pressure_pattern)
 
 @cocotb.test(timeout_time=1000, timeout_unit="us")
 async def test_data_transfer_no_backpressure_bubbled(dut):
