@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration ---
-NUM_RUNS=100                               # Total number of randomized iterations
+NUM_RUNS=200                               # Total number of randomized iterations
 TEST_NAME="test_heavy_backpressure"         # The specific test case to fuzz
 LOG_DIR="regression_results"                # Directory to house the outputs
 

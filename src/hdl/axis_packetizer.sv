@@ -63,6 +63,8 @@ module axis_packetizer #(
 
     logic [31:0] crc_value_q, crc_value_d;
     logic [31:0] crc_out;
+    // Final CRC to present on the stream (apply final XOR before output)
+    logic [31:0] crc_to_output;
     logic crc_clear;
     logic crc_hold;
     logic crc_update;
@@ -179,6 +181,7 @@ module axis_packetizer #(
                     if (M_AXIS_TREADY) begin
                         header_pos_d = 1'b1;
                         output_data_d = {packet_len_q, 16'h0};
+                        crc_update = 1'b1;
                     end
                 end
                 1'b1: begin
@@ -257,8 +260,10 @@ module axis_packetizer #(
                 exit_payload_d = 1'b0;
             end
         end else if (control_state_q[WRITE_CRC_IDX]) begin
+            // Present canonical CRC-32 on the stream: apply final XOR (0xFFFFFFFF)
+            crc_to_output = ~crc_value_q;
             if ((M_AXIS_TREADY && output_data_tvalid_q) || !(output_data_tvalid_q)) begin
-                output_data_d = crc_value_q;
+                output_data_d = crc_to_output;
                 output_data_tvalid_d = 1'b1;
                 // Only assert TLAST when the CRC beat will actually be transferred
                 output_data_tlast_d = 1'b1;
@@ -294,11 +299,36 @@ module axis_packetizer #(
 
     end
 
+    // assign input_data_reordered = { input_data_q[7:0],
+    //                                 input_data_q[15:8],
+    //                                 input_data_q[23:16],
+    //                                 input_data_q[31:24]};
+
     crc32_parallel crc (
         .crcIn(crc_value_q),
         .crcOut(crc_out),
         .data(input_data_q)
     );
+
+// logic [31:0] crc_next;
+// logic [31:0] crc_func_out;
+
+// always_comb begin
+//     // Default: hold current value
+//     crc_next = crc_value_q;
+
+//     // Clear back to all ones at the start of a new packet
+//     if (crc_clear) begin
+//         crc_next = 32'hFFFFFFFF;
+//     end else if (crc_update) begin
+//         // Process byte-lanes from lowest to highest to match zlib byte streaming
+//         crc_next = next_crc32_byte(crc_next, input_data_q[7:0]);
+//         crc_next = next_crc32_byte(crc_next, input_data_q[15:8]);
+//         crc_next = next_crc32_byte(crc_next, input_data_q[23:16]);
+//         crc_next = next_crc32_byte(crc_next, input_data_q[31:24]);
+//     end
+// end
+// assign crc_func_out = ~crc_next;
 
 
 genvar i;
@@ -345,3 +375,18 @@ ODDRE1 #(
     assign M_AXIS_TKEEP = {KEEP_WIDTH{1'b1}};
 
 endmodule
+
+function automatic logic [31:0] next_crc32_byte(logic [31:0] current_crc, logic [7:0] data_byte);
+    logic [31:0] crc;
+    crc = current_crc;
+
+    // Process LSB first to satisfy 'Reflect Input = True' natively
+    for (int i = 0; i < 8; i++) begin
+        if ((crc[0] ^ data_byte[i]) == 1'b1) begin
+            crc = (crc >> 1) ^ 32'hEDB88320; // Using the reversed polynomial
+        end else begin
+            crc = crc >> 1;
+        end
+    end
+    return crc;
+endfunction

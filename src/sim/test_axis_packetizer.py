@@ -1,5 +1,6 @@
 import cocotb
 import random
+import zlib
 from asyncio import Queue
 from cocotb.triggers import Timer, RisingEdge
 from cocotb.clock import Clock
@@ -9,6 +10,8 @@ import numpy as np
 
 PACKET_OVERHEAD = 12
 HEADER_SIZE = 8
+
+TEST_TIMEOUT_US = 200
 
 MAX_RUNS = 100
 
@@ -24,7 +27,7 @@ async def setup_reset(dut):
     dut.RST_N.value = 1
     await RisingEdge(dut.CLK)
 
-def validate_output_packet(in_data, in_len, transfer_num, out_data) -> bool:
+def validate_output_packet(in_data, in_len, transfer_num, out_data, check_crc=False) -> bool:
 
     cocotb.log.info("input_len: %d out_data len: %d", in_len, len(out_data))
     if len(out_data) != in_len + PACKET_OVERHEAD:
@@ -32,12 +35,32 @@ def validate_output_packet(in_data, in_len, transfer_num, out_data) -> bool:
 
     # for (idx, val) in in_data:
     cocotb.log.info("out_data len: %d", len(out_data))
-    cocotb.log.info("in_data %x. out_data %x", int.from_bytes(in_data, byteorder='big'), int.from_bytes(out_data[8:8+in_len], byteorder='big'))
+    cocotb.log.info("in_data %x. out_data %x", int.from_bytes(in_data, byteorder='little'), int.from_bytes(out_data[8:8+in_len], byteorder='little'))
     if in_data != out_data[8:8+in_len]:
         return False
 
-    if transfer_num != int.from_bytes(out_data[0:+1], byteorder='big'):
+    if transfer_num != int.from_bytes(out_data[0:+1], byteorder='little'):
         return False
+    
+    if check_crc:
+        # canonical CRC over payload as-is
+        correct_crc = zlib.crc32(in_data)
+
+        cocotb.log.info("expected crc: %x", correct_crc)
+
+        # Compare against received CRC (4 bytes at end of packet)
+        rx_crc_bytes = out_data[8+in_len:8+in_len+4]
+        rx_crc_le = int.from_bytes(rx_crc_bytes, byteorder='little')
+
+        cocotb.log.info("RX CRC bytes: %s => LE: 0x%08x", rx_crc_bytes.hex(), rx_crc_le)
+
+        if correct_crc != rx_crc_le:
+            cocotb.log.warning("CRC mismatch! Expected: %x Received: %x", correct_crc, rx_crc_le)
+            return False
+        
+    return True
+
+
 
 
 async def send_payload(dut, axis_source, data, transfer_num):
@@ -64,7 +87,7 @@ async def packet_producer(dut, axis_source, num_packets, expectation_queue):
 
 # Unified Test Runner
 
-async def run_packetizer_regression(dut, num_packets=50, sink_pause_gen=None, source_pause_gen=None):
+async def run_packetizer_regression(dut, num_packets=50, sink_pause_gen=None, source_pause_gen=None, crc_check=False):
 
     # init environment 
     # 1. Start a 250 MHz clock domain (4.0 ns period)
@@ -94,7 +117,7 @@ async def run_packetizer_regression(dut, num_packets=50, sink_pause_gen=None, so
         expected = await expectation_queue.get()
         test_data = expected["in_data"]
         num_bytes = expected["in_len"]
-        if validate_output_packet(test_data, num_bytes, packet_id, output_frame.tdata) == False:
+        if validate_output_packet(test_data, num_bytes, packet_id, output_frame.tdata, check_crc=crc_check) == False:
             msg = f"[Packet {packet_id}] MISMATCH! Input data: {test_data.hex().upper()} Output Packet: {output_frame.tdata.hex().upper()}"
 
             dut._log.error(msg)
@@ -133,7 +156,7 @@ async def test_baseline_packet(dut):
     dut._log.info("Workspace verification environment successfully initialized!")
     await Timer(20, unit="ns")
 
-@cocotb.test(timeout_time=100, timeout_unit="us")
+@cocotb.test(timeout_time=TEST_TIMEOUT_US, timeout_unit="us")
 async def test_data_transfer_no_backpressure(dut):
     """Test that there are no AXI-Stream protocol viooutput_data_tvalid_q && M_AXIS_TREADYlations under normal operation"""
 
@@ -141,7 +164,7 @@ async def test_data_transfer_no_backpressure(dut):
 
     await run_packetizer_regression(dut, num_packets=num_runs)
 
-@cocotb.test(timeout_time=100, timeout_unit="us")
+@cocotb.test(timeout_time=TEST_TIMEOUT_US, timeout_unit="us")
 async def test_data_transfer_receiver_backpressure_10_pattern(dut):
     """Test data transfer with backpressure on the receiving device"""
 
@@ -151,7 +174,7 @@ async def test_data_transfer_receiver_backpressure_10_pattern(dut):
 
     await run_packetizer_regression(dut, num_packets=num_runs, sink_pause_gen=backpressure_pattern)
 
-@cocotb.test(timeout_time=100, timeout_unit="us")
+@cocotb.test(timeout_time=TEST_TIMEOUT_US, timeout_unit="us")
 async def test_functional_receiver_backpressure_rand(dut):
     """Test data transfer with random receiving backpressure"""
 
@@ -163,7 +186,7 @@ async def test_functional_receiver_backpressure_rand(dut):
 
     await run_packetizer_regression(dut, num_packets=num_runs, sink_pause_gen=backpressure_pattern)
 
-@cocotb.test(timeout_time=100, timeout_unit="us")
+@cocotb.test(timeout_time=TEST_TIMEOUT_US, timeout_unit="us")
 async def test_functional_transmitter_frontpressure_rand(dut):
     """Test data transfer with random transmitter frontpressure"""
 
@@ -175,7 +198,7 @@ async def test_functional_transmitter_frontpressure_rand(dut):
 
     await run_packetizer_regression(dut, num_packets=num_runs, source_pause_gen=frontpressure_pattern)
 
-@cocotb.test(timeout_time=100, timeout_unit="us")
+@cocotb.test(timeout_time=TEST_TIMEOUT_US, timeout_unit="us")
 async def functional_transmitter_receiver_backpressure_rand(dut):
     """Test data transfer correctness with random transmitter and receiver throttling"""
 
@@ -190,6 +213,14 @@ async def functional_transmitter_receiver_backpressure_rand(dut):
     slave_pressure_pattern = looping_pause_generator(loop_pattern_slave)
 
     await run_packetizer_regression(dut, num_packets=num_runs, sink_pause_gen=slave_pressure_pattern, source_pause_gen=master_pressure_pattern)
+
+@cocotb.test(timeout_time=TEST_TIMEOUT_US, timeout_unit="us")
+async def functional_basic_crc_check(dut):
+    """Check CRC is correct after simple data transfers"""
+
+    num_runs = random.randint(1,20)
+
+    await run_packetizer_regression(dut, num_packets=num_runs, crc_check=True)
 
 @cocotb.test(timeout_time=1000, timeout_unit="us")
 async def test_data_transfer_no_backpressure_bubbled(dut):
