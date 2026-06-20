@@ -122,7 +122,6 @@ module axis_packetizer #(
         // Only capture new output data when the downstream accepts it
         if (1) begin
             output_data_q <= output_data_d;
-            // output_data_tlast_q <= output_data_tlast_d;
         end
     end
 
@@ -132,9 +131,6 @@ module axis_packetizer #(
         // into your internal logic, saving dynamic power.
         if (S_AXIS_TVALID && S_AXIS_TREADY) begin
             input_data_q <= S_AXIS_TDATA;
-            // input_tvalid_q <= 1'b1;
-        end else begin
-            // input_tvalid_q <= 1'b0;
         end
     end
 
@@ -201,24 +197,18 @@ module axis_packetizer #(
                 end
             endcase
         end else if (control_state_q[STREAM_PAYLOAD_IDX]) begin
-            //Only step data if previous data has been accepted?
-            // output_data_d = (M_AXIS_TREADY && output_data_tvalid_q) ? input_data_q : output_data_q;
             // Does below properly time tvalid s.t. data comes to a stop correctly if s_axis_tvalid drops in this state?
             // I don't think it does because TVALID could be high but we don't accept the data until s_axis_tready is high?
             // We need to set tvalid as high on first entrance always because 
-            // if (!control_state_qq[STREAM_PAYLOAD_IDX]) output_data_tvalid_d = 1'b1;
-            // else output_data_tvalid_d = 1'b1;
             // input data will be valid if 
             //TODO: maybe break the input data signals into a fifo-like structure...
             if (output_data_tvalid_q) begin
                 if (M_AXIS_TREADY) begin
                     //Old data accepted, we need to decide if we have more data to push out or need to drop tvalid
-                    // input_tvalid_d = valid_capture;
                     output_data_d = input_data_q;
                     output_data_tvalid_d = input_tvalid_q;
                 end else begin
                     // No transfer, we need to hold previous values
-                    // input_tvalid_d = input_tvalid_q;
                     output_data_d = output_data_q;
                     output_data_tvalid_d = output_data_tvalid_q;
                 end
@@ -226,24 +216,10 @@ module axis_packetizer #(
                 //We aren't transferring anything this round, do we have something for next round?
                 output_data_d = input_data_q;
                 output_data_tvalid_d = input_tvalid_q;
-                // input_tvalid_d = valid_capture;
             end
-            // if (input_tvalid_q) begin
-            //     if (output_data_tvalid_q && M_AXIS_TREADY) begin // && M_AXIS_TREADY -> may be important sometimes
-            //         // we are going to push out the current input_data_q/tvalid_q, so try to catch new data
-            //         input_tvalid_d = valid_capture;
-            //     end else begin
-            //         input_tvalid_d = input_tvalid_q;
-            //     end
-            // end else begin
-            //     // we have no valid data in the register now, so always try to capture new valid data.
-            //     input_tvalid_d = valid_capture;
-            // end
             if (transfer_next_out || !input_tvalid_q) begin
                 input_tvalid_d = valid_capture;
             end
-            // input_tvalid_d = S_AXIS_TREADY && S_AXIS_TVALID;
-            // output_data_tvalid_d = (M_AXIS_TREADY && output_data_tvalid_q) ? input_tvalid_q : output_data_tvalid_q;
             // If downstream can't accept data, we can't replace current data with new data => drop S_AXIS_TREADY.
             // Don't be ready once we are exiting payload, since next data will need to come into idle
             // TODO: We could potentially start next transistion here and skip IDLE, move directly to write_header
@@ -299,37 +275,11 @@ module axis_packetizer #(
 
     end
 
-    // assign input_data_reordered = { input_data_q[7:0],
-    //                                 input_data_q[15:8],
-    //                                 input_data_q[23:16],
-    //                                 input_data_q[31:24]};
-
     crc32_parallel crc (
         .crcIn(crc_value_q),
         .crcOut(crc_out),
         .data(input_data_q)
     );
-
-// logic [31:0] crc_next;
-// logic [31:0] crc_func_out;
-
-// always_comb begin
-//     // Default: hold current value
-//     crc_next = crc_value_q;
-
-//     // Clear back to all ones at the start of a new packet
-//     if (crc_clear) begin
-//         crc_next = 32'hFFFFFFFF;
-//     end else if (crc_update) begin
-//         // Process byte-lanes from lowest to highest to match zlib byte streaming
-//         crc_next = next_crc32_byte(crc_next, input_data_q[7:0]);
-//         crc_next = next_crc32_byte(crc_next, input_data_q[15:8]);
-//         crc_next = next_crc32_byte(crc_next, input_data_q[23:16]);
-//         crc_next = next_crc32_byte(crc_next, input_data_q[31:24]);
-//     end
-// end
-// assign crc_func_out = ~crc_next;
-
 
 genvar i;
 generate
@@ -369,24 +319,6 @@ ODDRE1 #(
     .SR (1'b0)          // No reset required for continuous clocking
 );
 
-    // assign M_AXIS_TLAST = output_data_tlast_q;
-    // assign M_AXIS_TVALID = output_data_tvalid_q;
-    // assign M_AXIS_TDATA = output_data_q;
     assign M_AXIS_TKEEP = {KEEP_WIDTH{1'b1}};
 
 endmodule
-
-function automatic logic [31:0] next_crc32_byte(logic [31:0] current_crc, logic [7:0] data_byte);
-    logic [31:0] crc;
-    crc = current_crc;
-
-    // Process LSB first to satisfy 'Reflect Input = True' natively
-    for (int i = 0; i < 8; i++) begin
-        if ((crc[0] ^ data_byte[i]) == 1'b1) begin
-            crc = (crc >> 1) ^ 32'hEDB88320; // Using the reversed polynomial
-        end else begin
-            crc = crc >> 1;
-        end
-    end
-    return crc;
-endfunction
