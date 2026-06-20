@@ -14,9 +14,16 @@ HEADER_SIZE = 8
 TEST_TIMEOUT_US = 200
 
 MAX_RUNS = 100
+PAUSE_PATTERN_LEN = 10
+MAX_TRANSFER_LEN = 64
 
 def looping_pause_generator(pattern):
     """Generates an infinite cycle-by-cycle pause profile from a list pattern"""
+
+    if (0 not in pattern): 
+        cocotb.log.info("No-0 busy pattern!, replacing with [0,1] pattern")
+        return itertools.cycle([0,1])
+    
     return itertools.cycle(pattern)
 
 async def setup_reset(dut):
@@ -180,9 +187,9 @@ async def test_functional_receiver_backpressure_rand(dut):
 
     num_runs = random.randint(1,MAX_RUNS)
 
-    loop_pattern = np.random.randint(0,2,size=10)
+    loop_pattern = [random.randint(0,1) for _ in range(10)]
 
-    backpressure_pattern = looping_pause_generator(loop_pattern.tolist())
+    backpressure_pattern = looping_pause_generator(loop_pattern)
 
     await run_packetizer_regression(dut, num_packets=num_runs, sink_pause_gen=backpressure_pattern)
 
@@ -192,9 +199,9 @@ async def test_functional_transmitter_frontpressure_rand(dut):
 
     num_runs = random.randint(1,MAX_RUNS)
 
-    loop_pattern = np.random.randint(0,2,size=10)
+    loop_pattern = [random.randint(0,1) for _ in range(10)]
 
-    frontpressure_pattern = looping_pause_generator(loop_pattern.tolist())
+    frontpressure_pattern = looping_pause_generator(loop_pattern)
 
     await run_packetizer_regression(dut, num_packets=num_runs, source_pause_gen=frontpressure_pattern)
 
