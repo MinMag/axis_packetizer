@@ -1,4 +1,4 @@
-create_clock -period 4.000 -name CLK [get_ports CLK]
+create_clock -period 7.000 -name CLK [get_ports CLK]
 
 set_clock_uncertainty 0.100 [get_clocks CLK]
 
@@ -23,16 +23,18 @@ set_input_delay -clock CLK -min 0.400 [get_ports M_AXIS_TREADY]
 
 # set_property IOB TRUE [get_cells output_data_q_reg[*]]
 
-create_generated_clock -name fwd_m_axis_aclk -source [get_ports CLK] -divide_by 1 [get_ports M_AXIS_ACLK]
+# create_generated_clock -name fwd_m_axis_aclk -source [get_ports CLK] -divide_by 1 [get_ports M_AXIS_ACLK]
+create_generated_clock -name fwd_m_axis_aclk -source [get_pins rx_clk_forward_inst/C] -divide_by 1 -invert [get_ports M_AXIS_ACLK]
+
+# set_clock_groups -asynchronous -group [get_clocks CLK] -group [get_clocks fwd_m_axis_aclk]
+
+set_output_delay -clock fwd_m_axis_aclk -max 2.000 [get_ports {M_AXIS_TVALID {M_AXIS_TDATA[*]} M_AXIS_TLAST {M_AXIS_TKEEP[*]}}]
+set_output_delay -clock fwd_m_axis_aclk -min -1.000 [get_ports {M_AXIS_TVALID {M_AXIS_TDATA[*]} M_AXIS_TLAST {M_AXIS_TKEEP[*]}}]
 
 
-set_output_delay -clock fwd_m_axis_aclk -max 1.600 [get_ports {M_AXIS_TVALID {M_AXIS_TDATA[*]} M_AXIS_TLAST {M_AXIS_TKEEP[*]}}]
-set_output_delay -clock fwd_m_axis_aclk -min 0.200 [get_ports {M_AXIS_TVALID {M_AXIS_TDATA[*]} M_AXIS_TLAST {M_AXIS_TKEEP[*]}}]
 
-create_generated_clock -name ACLK_ext -source [get_pins rx_clk_forward_inst/C] -divide_by 1 [get_ports M_AXIS_ACLK]
-
-set_input_delay -clock [get_clocks ACLK_ext] -max 1.000 [get_ports M_AXIS_TREADY]
-set_input_delay -clock [get_clocks ACLK_ext] -min 0.200 [get_ports M_AXIS_TREADY]
+set_input_delay -clock [get_clocks fwd_m_axis_aclk] -max 1.000 [get_ports M_AXIS_TREADY]
+set_input_delay -clock [get_clocks fwd_m_axis_aclk] -min 0.200 [get_ports M_AXIS_TREADY]
 
 # ==============================================================================
 # 4. ASYNCHRONOUS / TIMING EXCEPTIONS
