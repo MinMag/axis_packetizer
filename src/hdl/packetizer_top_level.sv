@@ -32,7 +32,6 @@ module packetizer_top_level #(
     // =========================================================================
 
     logic idelay_rdy;
-    
     logic system_rst_n;
     logic reset_req;
     logic [1:0] rst_sync_reg;
