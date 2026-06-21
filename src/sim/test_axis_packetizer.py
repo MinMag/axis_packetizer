@@ -101,7 +101,7 @@ async def run_packetizer_regression(dut, num_packets=50, sink_pause_gen=None, so
     cocotb.start_soon(Clock(dut.CLK, 4.0, unit="ns").start())
     
 
-    axis_source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "S_AXIS"), dut.CLK, dut.RST_N, reset_active_level=False)
+    axis_source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "S_AXIS"), dut.CORE_CLK, dut.RST_N, reset_active_level=False)
     axis_sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "M_AXIS"), dut.M_AXIS_ACLK, dut.RST_N,reset_active_level=False)
 
     if sink_pause_gen is not None:

@@ -7,6 +7,7 @@ VERILOG_SOURCES += $(PWD)/../hdl/crc32_parallel.sv
 VERILOG_SOURCES += $(PWD)/../hdl/axis_packetizer.sv
 VERILOG_SOURCES += $(PWD)/../hdl/axis_skid_buffer.sv
 VERILOG_SOURCES += $(PWD)/mock_primitives/ODDRE1.v
+VERILOG_SOURCES += $(PWD)/../hdl/xpm_fifo_axis.sv
 # The name of your top-level SystemVerilog module
 TOPLEVEL = axis_packetizer
 

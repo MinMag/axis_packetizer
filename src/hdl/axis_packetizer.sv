@@ -24,17 +24,18 @@ module axis_packetizer #(
     parameter int P_DATA_WIDTH = 32,
     parameter int KEEP_WIDTH = P_DATA_WIDTH/8
 )(
-    input  logic                  CLK,
+    input  logic                  CORE_CLK,
+    input  logic                  IO_CLK,
     input  logic                  RST_N,
 
-    //AXI-Stream Ingress
+    //AXI-Stream Ingress CORE_CLK
     input  logic [P_DATA_WIDTH-1:0] S_AXIS_TDATA,
     input  logic [KEEP_WIDTH-1:0] S_AXIS_TKEEP,
     input  logic                  S_AXIS_TVALID,
     output logic                  S_AXIS_TREADY,
     input  logic                  S_AXIS_TLAST,
 
-    //AXI-Stream Egress
+    //AXI-Stream Egress IO_CLK
     output logic [P_DATA_WIDTH-1:0] M_AXIS_TDATA,
     output logic [KEEP_WIDTH-1:0] M_AXIS_TKEEP,
     output logic                  M_AXIS_TVALID,
@@ -87,32 +88,32 @@ module axis_packetizer #(
 
     logic transfer_next_out;
 
-    logic skid_ready;
+    logic fifo_s_tready;
 
     logic [31:0] out_tdata_q;
     logic        out_tvalid_q;
     logic        out_tlast_q;
-    // Skid buffer internal signals
-    logic        skid_out_tvalid_q, skid_out_tvalid_d;
-    logic [31:0] skid_out_tdata_q, skid_out_tdata_d;
-    logic        skid_out_tlast_q, skid_out_tlast_d;
+
+    logic [31:0] core_tdata_q;
+    logic        core_tvalid_q;
+    logic        core_tlast_q;
+
+    logic [31:0] fifo_m_tdata;
+    logic        fifo_m_tvalid;
+    logic        fifo_m_tlast;
+    logic        fifo_m_tready;
 
     (* IOB="TRUE" *) logic [31:0] m_axis_tdata_q;
     (* IOB="TRUE" *) logic m_axis_tvalid_q;
     (* IOB="TRUE" *) logic m_axis_tlast_q;
 
-
-    logic [31:0] next_io_tdata;
-    logic        next_io_tvalid;
-    logic        next_io_tlast;
-
-    assign skid_ready = !skid_out_tvalid_q;
+    assign fifo_m_tready = M_AXIS_TREADY;
 
     assign #1ps M_AXIS_TDATA = m_axis_tdata_q;
     assign #1ps M_AXIS_TVALID = m_axis_tvalid_q;
     assign #1ps M_AXIS_TLAST = m_axis_tlast_q;
 
-    always_ff @(posedge CLK or negedge RST_N) begin
+    always_ff @(posedge CORE_CLK or negedge RST_N) begin
         if (!RST_N) begin
             crc_value_q <= 32'hFFFFFFFF;
             control_state_q <= IDLE;
@@ -127,9 +128,9 @@ module axis_packetizer #(
             out_tdata_q <= '0; // Do I need to reset all of these? Or do  Inot reset data flops
             out_tvalid_q <= 1'b0;
             out_tlast_q <= 1'b0;
-            skid_out_tdata_q <= '0;
-            skid_out_tvalid_q <= 1'b0;
-            skid_out_tlast_q <= 1'b0; 
+            core_tdata_q <= '0;
+            core_tvalid_q <= 1'b0;
+            core_tlast_q <= 1'b0;
         end else begin
             crc_value_q <= crc_value_d;
             control_state_q <= control_state_d;
@@ -141,29 +142,10 @@ module axis_packetizer #(
             control_state_qq <= control_state_q;
             skip_payload_q <= skip_payload_d;
             input_tvalid_q <= input_tvalid_d;
-            out_tdata_q <= next_io_tdata;
-            out_tvalid_q <= next_io_tvalid;
-            out_tlast_q <= next_io_tlast;
-            // skid_out_tdata_q <= skid_out_tdata_d;
-            // skid_out_tvalid_q <= skid_out_tvalid_d;
-            // skid_out_tlast_q <= skid_out_tlast_d;
-            if (M_AXIS_TREADY) begin
-                if(skid_out_tvalid_q) begin
-                    m_axis_tdata_q <= skid_out_tdata_q;
-                    m_axis_tvalid_q <= 1'b1;
-                    m_axis_tlast_q <= skid_out_tlast_q;
-                    skid_out_tvalid_q <= 1'b0;
-                end else begin
-                    m_axis_tdata_q <= output_data_d;
-                    m_axis_tvalid_q <= output_data_tvalid_d;
-                    m_axis_tlast_q <= output_data_tlast_d;
-                end
-            end else begin
-                if (!skid_out_tvalid_q && output_data_tvalid_d) begin
-                    skid_out_tdata_q <= output_data_d;
-                    skid_out_tvalid_q <= 1'b1;
-                    skid_out_tlast_q <= output_data_tlast_d;
-                end
+            if (fifo_s_tready) begin
+                core_tdata_q <= output_data_d;
+                core_tvalid_q <= output_data_tvalid_d;
+                core_tlast_q <= output_data_tlast_d;
             end
         end
     end
@@ -175,7 +157,7 @@ module axis_packetizer #(
     //     end
     // end
 
-    always_ff @(posedge CLK) begin
+    always_ff @(posedge CORE_CLK) begin
         // Clock Enable: Only capture data when a valid slave handshake occurs.
         // This prevents random toggling on the input wires from propagating 
         // into your internal logic, saving dynamic power.
@@ -185,7 +167,7 @@ module axis_packetizer #(
     end
 
     assign valid_capture = S_AXIS_TVALID && S_AXIS_TREADY;
-    // assign transfer_next_out = skid_ready;
+    // assign transfer_next_out = fifo_s_tready;
 
     always_comb begin
 
@@ -224,7 +206,7 @@ module axis_packetizer #(
                 1'b0: begin
                     // Is this going to produce a weird result? Or Okay with valid signaling?
                     output_data_d = {16'h63df, packet_id_q};
-                    if (skid_ready) begin
+                    if (fifo_s_tready) begin
                         header_pos_d = 1'b1;
                         // output_data_d = {packet_len_q, 16'h0};
                         // crc_update = 1'b1;
@@ -232,7 +214,7 @@ module axis_packetizer #(
                 end
                 1'b1: begin
                     output_data_d = {packet_len_q, 16'h0};
-                    if (skid_ready) begin
+                    if (fifo_s_tready) begin
                         header_pos_d = 1'b0;
                         control_state_d = skip_payload_q ? WRITE_CRC : STREAM_PAYLOAD;
                         // S_AXIS_TREADY = !skip_payload_q;
@@ -255,20 +237,20 @@ module axis_packetizer #(
             output_data_d = input_data_q;
             output_data_tvalid_d = input_tvalid_q;
             output_data_tlast_d = 1'b0;
-            if (skid_ready || !input_tvalid_q) begin
+            if (fifo_s_tready || !input_tvalid_q) begin
                 input_tvalid_d = valid_capture;
             end
             // If downstream can't accept data, we can't replace current data with new data => drop S_AXIS_TREADY.
             // Don't be ready once we are exiting payload, since next data will need to come into idle
             // TODO: We could potentially start next transistion here and skip IDLE, move directly to write_header
-            S_AXIS_TREADY = (skid_ready || !input_tvalid_q) && !exit_payload_q;
+            S_AXIS_TREADY = (fifo_s_tready || !input_tvalid_q) && !exit_payload_q;
             // Only update CRC on an accepted payload beat
-            crc_update = skid_ready && input_tvalid_q;
+            crc_update = fifo_s_tready && input_tvalid_q;
             // Mark that the last payload beat was accepted by the slave
             if (S_AXIS_TVALID && S_AXIS_TREADY && S_AXIS_TLAST) begin
                 exit_payload_d = 1'b1;
             end
-            if (exit_payload_q && skid_ready && input_tvalid_q) begin
+            if (exit_payload_q && fifo_s_tready && input_tvalid_q) begin
                 S_AXIS_TREADY = '0;
                 control_state_d = WRITE_CRC;
                 exit_payload_d = 1'b0;
@@ -287,9 +269,9 @@ module axis_packetizer #(
             output_data_tlast_d = 1'b1;
             crc_hold = 1'b1;
             // In WRITE_CRC, data pipeline must necessarily be empty, so would be ready to accept new data?
-            // No, because if skid_ready is low, could still fill up pipeline.
+            // No, because if fifo_s_tready is low, could still fill up pipeline.
             S_AXIS_TREADY = 1'b0; // 1'b0 for now to not miss the IDLE exit transition, but should be made more robust
-            if (skid_ready) begin //Final data transfer
+            if (fifo_s_tready) begin //Final data transfer
                 crc_hold = 1'b0;
                 control_state_d = IDLE;
                 // output_data_tlast_d = 1'b0;
@@ -318,54 +300,50 @@ module axis_packetizer #(
         .data(input_data_q)
     );
 
-    always_comb begin 
-        skid_out_tdata_d = skid_out_tdata_q;
-        skid_out_tvalid_d = skid_out_tvalid_q;
-        skid_out_tlast_d = skid_out_tlast_q;
 
-        if (skid_out_tvalid_q) begin
-            next_io_tdata = skid_out_tdata_q;
-            next_io_tvalid = 1'b1;
-            next_io_tlast = skid_out_tlast_q;
-            skid_out_tvalid_d = 1'b0;
+xpm_fifo_axis #(
+        .CLOCKING_MODE("independent_clock"), // Critical for CDC
+        .FIFO_DEPTH(32),                     // Deep enough to absorb bursts & flight time
+        .FIFO_MEMORY_TYPE("auto"),
+        .PACKET_FIFO("false"),
+        .USE_ADV_FEATURES("0000")
+    ) u_async_fifo (
+        // Write Side (250 MHz Core Domain)
+        .s_aclk        (CORE_CLK),
+        .s_aresetn     (RST_N),
+        .s_axis_tdata  (core_tdata_q),
+        .s_axis_tvalid (core_tvalid_q),
+        .s_axis_tlast  (core_tlast_q),
+        .s_axis_tready (fifo_s_tready),      // Feeds back into your FSM
+
+        // Read Side (125 MHz I/O Domain)
+        .m_aclk        (IO_CLK),
+        .m_axis_tdata  (fifo_m_tdata),
+        .m_axis_tvalid (fifo_m_tvalid),
+        .m_axis_tlast  (fifo_m_tlast),
+        .m_axis_tready (fifo_m_tready)       // Driven by your IOB boundary
+    );
+
+    always_ff @(posedge IO_CLK or negedge RST_N) begin
+        if (!RST_N) begin
+            m_axis_tdata_q <= '0;
+            m_axis_tvalid_q <= 1'b0;
+            m_axis_tlast_q <= 1'b0;
         end else begin
-            next_io_tdata = output_data_d;
-            next_io_tvalid = output_data_tvalid_d;
-            next_io_tlast = output_data_tlast_d;
-            skid_out_tdata_d = output_data_d;
-            skid_out_tvalid_d = output_data_tvalid_d;
-            skid_out_tlast_d  = output_data_tlast_d;
+            if (M_AXIS_TREADY) begin
+                m_axis_tdata_q <= fifo_m_tdata;
+                m_axis_tvalid_q <= fifo_m_tvalid;
+                m_axis_tlast_q <= fifo_m_tlast;
+            end
         end
- 
     end
-
-
-// Skid buffer instantiation
-// axis_skid_buffer #(
-//     .P_DATA_WIDTH(P_DATA_WIDTH)
-// ) output_skid_buffer (
-//     .CLK(CLK),
-//     .RST_N(RST_N),
-
-//     //Upstream Interface
-//     .S_AXIS_TVALID(output_data_tvalid_d),
-//     .S_AXIS_TREADY(skid_ready),
-//     .S_AXIS_TDATA(output_data_d),
-//     .S_AXIS_TLAST(output_data_tlast_d),
-
-//     //Downstream
-//     .M_AXIS_TVALID(skid_out_tvalid),
-//     .M_AXIS_TREADY(M_AXIS_TREADY),
-//     .M_AXIS_TDATA(skid_out_tdata),
-//     .M_AXIS_TLAST(skid_out_tlast)
-// );
 
 
     ODDRE1 #(
     .SIM_DEVICE("ULTRASCALE_PLUS")
 ) rx_clk_forward_inst (
     .Q  (M_AXIS_ACLK),  // Connects directly to your new top-level output port
-    .C  (CLK),          // Driven by your standard INTERNAL 250 MHz system clock
+    .C  (IO_CLK),          // Driven by your standard INTERNAL 250 MHz system clock
     .D1 (1'b1),         // Tied High: Out-of-phase or edge-aligned options
     .D2 (1'b0),         // Tied Low
     .SR (1'b0)          // No reset required for continuous clocking
