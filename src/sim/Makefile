@@ -24,9 +24,9 @@ include $(shell cocotb-config --makefiles)/Makefile.sim
 waves:
 	@echo "Running simulation with waveform dumping enabled..."
 	@if [ "$(SIM)" = "verilator" ]; then \
-		EXTRA_ARGS="-Wall --timing --trace --trace-fst --trace-structs -CFLAGS \"-I$(CONDA_PREFIX)/include\"" $(MAKE) clean sim; \
+		EXTRA_ARGS="-Wall --timing --trace --trace-fst --trace-structs -CFLAGS \"-I$(CONDA_PREFIX)/include\"" $(MAKE) sim; \
 	elif [ "$(SIM)" = "icarus" ]; then \
-		WAVES=1 $(MAKE) clean sim; \
+		WAVES=1 $(MAKE) sim; \
 	else \
 		echo "Simulator $(SIM) not explicitly configured for wave targets."; \
 	\
