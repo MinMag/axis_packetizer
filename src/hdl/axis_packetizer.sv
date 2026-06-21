@@ -97,12 +97,20 @@ module axis_packetizer #(
     logic [31:0] skid_out_tdata_q, skid_out_tdata_d;
     logic        skid_out_tlast_q, skid_out_tlast_d;
 
+    (* IOB="TRUE" *) logic [31:0] m_axis_tdata_q;
+    (* IOB="TRUE" *) logic m_axis_tvalid_q;
+    (* IOB="TRUE" *) logic m_axis_tlast_q;
+
 
     logic [31:0] next_io_tdata;
     logic        next_io_tvalid;
     logic        next_io_tlast;
 
     assign skid_ready = !skid_out_tvalid_q;
+
+    assign #1ps M_AXIS_TDATA = m_axis_tdata_q;
+    assign #1ps M_AXIS_TVALID = m_axis_tvalid_q;
+    assign #1ps M_AXIS_TLAST = m_axis_tlast_q;
 
     always_ff @(posedge CLK or negedge RST_N) begin
         if (!RST_N) begin
@@ -136,9 +144,27 @@ module axis_packetizer #(
             out_tdata_q <= next_io_tdata;
             out_tvalid_q <= next_io_tvalid;
             out_tlast_q <= next_io_tlast;
-            skid_out_tdata_q <= skid_out_tdata_d;
-            skid_out_tvalid_q <= skid_out_tvalid_d;
-            skid_out_tlast_q <= skid_out_tlast_d;
+            // skid_out_tdata_q <= skid_out_tdata_d;
+            // skid_out_tvalid_q <= skid_out_tvalid_d;
+            // skid_out_tlast_q <= skid_out_tlast_d;
+            if (M_AXIS_TREADY) begin
+                if(skid_out_tvalid_q) begin
+                    m_axis_tdata_q <= skid_out_tdata_q;
+                    m_axis_tvalid_q <= 1'b1;
+                    m_axis_tlast_q <= skid_out_tlast_q;
+                    skid_out_tvalid_q <= 1'b0;
+                end else begin
+                    m_axis_tdata_q <= output_data_d;
+                    m_axis_tvalid_q <= output_data_tvalid_d;
+                    m_axis_tlast_q <= output_data_tlast_d;
+                end
+            end else begin
+                if (!skid_out_tvalid_q && output_data_tvalid_d) begin
+                    skid_out_tdata_q <= output_data_d;
+                    skid_out_tvalid_q <= 1'b1;
+                    skid_out_tlast_q <= output_data_tlast_d;
+                end
+            end
         end
     end
 
@@ -296,27 +322,21 @@ module axis_packetizer #(
         skid_out_tdata_d = skid_out_tdata_q;
         skid_out_tvalid_d = skid_out_tvalid_q;
         skid_out_tlast_d = skid_out_tlast_q;
-        if (M_AXIS_TREADY) begin
-            if (skid_out_tvalid_q) begin
-                next_io_tdata = skid_out_tdata_q;
-                next_io_tvalid = 1'b1;
-                next_io_tlast = skid_out_tlast_q;
-                skid_out_tvalid_d = 1'b0;
-            end else begin
-                next_io_tdata = output_data_d;
-                next_io_tvalid = output_data_tvalid_d;
-                next_io_tlast = output_data_tlast_d;
-            end
+
+        if (skid_out_tvalid_q) begin
+            next_io_tdata = skid_out_tdata_q;
+            next_io_tvalid = 1'b1;
+            next_io_tlast = skid_out_tlast_q;
+            skid_out_tvalid_d = 1'b0;
         end else begin
-            next_io_tdata = out_tdata_q;
-            next_io_tvalid = out_tvalid_q;
-            next_io_tlast = out_tlast_q;
-            if (!skid_out_tvalid_q) begin
-                skid_out_tdata_d = output_data_d;
-                skid_out_tvalid_d = output_data_tvalid_d;
-                skid_out_tlast_d  = output_data_tlast_d;
-            end
+            next_io_tdata = output_data_d;
+            next_io_tvalid = output_data_tvalid_d;
+            next_io_tlast = output_data_tlast_d;
+            skid_out_tdata_d = output_data_d;
+            skid_out_tvalid_d = output_data_tvalid_d;
+            skid_out_tlast_d  = output_data_tlast_d;
         end
+ 
     end
 
 
@@ -340,33 +360,6 @@ module axis_packetizer #(
 //     .M_AXIS_TLAST(skid_out_tlast)
 // );
 
-genvar i;
-generate
-    for (i = 0; i < 32; i++) begin : gen_tdata_out
-        ODDRE1 #(
-            .SIM_DEVICE("ULTRASCALE_PLUS")
-        ) tdata_forward_inst (
-            .Q(M_AXIS_TDATA[i]),
-            .C(CLK),
-            .D1(next_io_tdata[i]), // Feed the same data bit to both DDR ports
-            .D2(next_io_tdata[i]), // to keep the value stable across the whole cycle
-            .SR(1'b0)
-        );
-    end
-endgenerate
-
-ODDRE1 #(
-    .SIM_DEVICE("ULTRASCALE_PLUS")
-) tlast_forward_inst (
-    .Q(M_AXIS_TLAST), .C(CLK), .D1(next_io_tlast), .D2(next_io_tlast), .SR(1'b0)
-);
-
-ODDRE1 #(
-    .SIM_DEVICE("ULTRASCALE_PLUS")
-) tvalid_forward_inst (
-    .Q(M_AXIS_TVALID), .C(CLK), .D1(next_io_tvalid), .D2(next_io_tvalid),
-    .SR(1'b0)
-);
 
     ODDRE1 #(
     .SIM_DEVICE("ULTRASCALE_PLUS")
