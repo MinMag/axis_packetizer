@@ -5,6 +5,7 @@ TOPLEVEL_LANG = verilog
 # Paths to your SystemVerilog source files
 VERILOG_SOURCES += $(PWD)/../hdl/crc32_parallel.sv
 VERILOG_SOURCES += $(PWD)/../hdl/axis_packetizer.sv
+VERILOG_SOURCES += $(PWD)/../hdl/axis_skid_buffer.sv
 VERILOG_SOURCES += $(PWD)/mock_primitives/ODDRE1.v
 # The name of your top-level SystemVerilog module
 TOPLEVEL = axis_packetizer
