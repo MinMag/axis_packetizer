@@ -40,7 +40,6 @@ module axis_packetizer #(
     output logic                  M_AXIS_TVALID,
     input  logic                  M_AXIS_TREADY,
     output logic                  M_AXIS_TLAST,
-    output logic                  M_AXIS_ACLK,
 
     //Implementation Specific Signals
     input  logic [15:0]           S_PAYLOAD_LEN
@@ -347,20 +346,7 @@ module axis_packetizer #(
 //     .M_AXIS_TDATA(skid_out_tdata),
 //     .M_AXIS_TLAST(skid_out_tlast)
 // );
-`ifndef SYNTHESIS
-    assign M_AXIS_ACLK = ~CLK;
-`else
 
-    ODDRE1 #(
-    .SIM_DEVICE("ULTRASCALE_PLUS")
-) rx_clk_forward_inst (
-    .Q  (M_AXIS_ACLK),  // Connects directly to your new top-level output port
-    .C  (CLK),          // Driven by your standard INTERNAL 250 MHz system clock
-    .D1 (1'b0),         // Tied High: Out-of-phase or edge-aligned options
-    .D2 (1'b1),         // Tied Low
-    .SR (1'b0)          // No reset required for continuous clocking
-);
-`endif
     assign M_AXIS_TKEEP = {KEEP_WIDTH{1'b1}};
 
 endmodule
