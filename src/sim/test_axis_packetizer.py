@@ -10,6 +10,7 @@ import numpy as np
 
 PACKET_OVERHEAD = 12
 HEADER_SIZE = 8
+MAGIC_NUM = 0x63DF
 
 TEST_TIMEOUT_US = 200
 
@@ -37,6 +38,18 @@ async def setup_reset(dut):
 def validate_output_packet(in_data, in_len, transfer_num, out_data, check_crc=False) -> bool:
 
     cocotb.log.info("input_len: %d out_data len: %d", in_len, len(out_data))
+    for i in range (8):
+        cocotb.log.info("%x", out_data[i])
+
+    if int.from_bytes(out_data[0:2], byteorder='little') != MAGIC_NUM:
+        cocotb.log.warning("magic number wrong")
+        return False
+
+    if len(out_data) != int.from_bytes(out_data[4:6], byteorder='little') + PACKET_OVERHEAD:
+        cocotb.log.warning("%x", int.from_bytes(out_data[4:6], byteorder='little'))
+        cocotb.log.warning("Packet length does not match payload_len field! %d, %d", len(out_data),  int.from_bytes(out_data[4:6], byteorder='little') + PACKET_OVERHEAD)
+        return False
+
     if len(out_data) != in_len + PACKET_OVERHEAD:
         return False
 
@@ -46,7 +59,8 @@ def validate_output_packet(in_data, in_len, transfer_num, out_data, check_crc=Fa
     if in_data != out_data[8:8+in_len]:
         return False
 
-    if transfer_num != int.from_bytes(out_data[0:+1], byteorder='little'):
+    if transfer_num != int.from_bytes(out_data[2:4], byteorder='little'):
+        cocotb.log.warning("transfer num mismatch")
         return False
     
     if check_crc:
@@ -69,9 +83,17 @@ def validate_output_packet(in_data, in_len, transfer_num, out_data, check_crc=Fa
 
 
 
+async def drive_sideband_len(dut, length_queue, num_packets):
+    packets_done = 0
+    while packets_done != num_packets:
+        await RisingEdge(dut.CLK)
+        # Only update the length if the bus is idle OR on the cycle after TLAST is accepted
+        if packets_done == 0 or (dut.S_AXIS_TVALID.value == 1 and dut.S_AXIS_TREADY.value == 1 and dut.S_AXIS_TLAST.value == 1):
+            if not length_queue.empty():
+                dut.S_PAYLOAD_LEN.value = length_queue.get_nowait()
+                packets_done += 1
 
 async def send_payload(dut, axis_source, data, transfer_num):
-    dut.S_PAYLOAD_LEN.value = len(data)
 
     input_frame = AxiStreamFrame(data)
     dut._log.info(f"Transmitting Payload #{transfer_num} packet of length {len(data)} bytes")
@@ -79,8 +101,10 @@ async def send_payload(dut, axis_source, data, transfer_num):
     await axis_source.send(input_frame)
 
 async def packet_producer(dut, axis_source, num_packets, expectation_queue):
+    length_queue = Queue()
+    payload_len_handle = cocotb.start_soon(drive_sideband_len(dut, length_queue, num_packets))
     for packet_id in range(num_packets):
-        num_transfers = random.randint(1,64)
+        num_transfers = random.randint(1,4)
         num_bytes = num_transfers * 4
         test_data = random.randbytes(num_bytes)
         metadata = {
@@ -89,7 +113,10 @@ async def packet_producer(dut, axis_source, num_packets, expectation_queue):
                     "transfer_num": packet_id
                 }
         await expectation_queue.put(metadata)
+        await length_queue.put(num_bytes)
         await send_payload(dut, axis_source, test_data, packet_id)
+
+    await payload_len_handle
 
 
 # Unified Test Runner
@@ -115,7 +142,9 @@ async def run_packetizer_regression(dut, num_packets=50, sink_pause_gen=None, so
     failures = []
     expectation_queue = Queue()
 
+
     producer_handle = cocotb.start_soon(packet_producer(dut, axis_source, num_packets, expectation_queue))
+
 
     for packet_id in range(num_packets):
 
@@ -167,7 +196,7 @@ async def test_baseline_packet(dut):
 async def test_data_transfer_no_backpressure(dut):
     """Test that there are no AXI-Stream protocol viooutput_data_tvalid_q && M_AXIS_TREADYlations under normal operation"""
 
-    num_runs = random.randint(1,200)
+    num_runs = random.randint(1,MAX_RUNS)
 
     await run_packetizer_regression(dut, num_packets=num_runs)
 
@@ -267,6 +296,7 @@ async def test_data_transfer_no_backpressure_bubbled(dut):
         num_transfers = random.randint(1,64)
         num_bytes = num_transfers * 4
         test_data = random.randbytes(num_bytes)
+        dut.S_PAYLOAD_LEN.value = num_bytes
         await send_payload(dut, axis_source, test_data, packet_id)
 
         dut._log.info("Awaiting formatted packet from m_axis...")

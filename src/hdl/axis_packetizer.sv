@@ -74,6 +74,7 @@ module axis_packetizer #(
 
     logic [31:0] output_data_d;
     logic [31:0] input_data_q;
+    logic [15:0] input_payload_len_q;
     logic output_data_tlast_d;
     logic output_data_tvalid_d;
     logic s_axis_tvalid_seen_q, s_axis_tvalid_seen_d;
@@ -169,6 +170,7 @@ module axis_packetizer #(
         if (S_AXIS_TVALID && S_AXIS_TREADY) begin
             input_data_q <= S_AXIS_TDATA;
             input_tlast_q <= S_AXIS_TLAST;
+            input_payload_len_q <= S_PAYLOAD_LEN;
         end
     end
 
@@ -203,13 +205,13 @@ module axis_packetizer #(
             output_data_tvalid_d = 1'b1; //This state will always have data ready?
             case (header_pos_q)
                 1'b0: begin
-                    output_data_d = {16'h63df, packet_id_q};
+                    output_data_d = {packet_id_q, 16'h63df};
                     if (skid_ready) begin
                         header_pos_d = 1'b1;
                     end
                 end
                 1'b1: begin
-                    output_data_d = {packet_len_q, 16'h0};
+                    output_data_d = {16'h0, packet_len_q};
                     if (skid_ready) begin
                         header_pos_d = 1'b0;
                         control_state_d = skip_payload_q ? WRITE_CRC : STREAM_PAYLOAD;
@@ -265,6 +267,9 @@ module axis_packetizer #(
                 crc_clear = 1'b1;
                 packet_id_d = packet_id_q + 1'b1;
                 s_axis_tready_d = !input_tvalid_q;
+                if (input_tvalid_q) begin
+                    packet_len_d = input_payload_len_q;
+                end
             end
         end
         s_axis_tvalid_seen_d = S_AXIS_TVALID && s_axis_tready_d; //should be S_AXIS_TVALID or s_axis_tvalid_seen_q?
