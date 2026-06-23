@@ -12,11 +12,11 @@ PACKET_OVERHEAD = 12
 HEADER_SIZE = 8
 MAGIC_NUM = 0x63DF
 
-TEST_TIMEOUT_US = 200
+TEST_TIMEOUT_US = 2000
 
 MAX_RUNS = 100
 PAUSE_PATTERN_LEN = 10
-MAX_TRANSFER_LEN = 64
+MAX_TRANSFER_LEN = 1000
 
 def looping_pause_generator(pattern):
     """Generates an infinite cycle-by-cycle pause profile from a list pattern"""
@@ -104,7 +104,7 @@ async def packet_producer(dut, axis_source, num_packets, expectation_queue):
     length_queue = Queue()
     payload_len_handle = cocotb.start_soon(drive_sideband_len(dut, length_queue, num_packets))
     for packet_id in range(num_packets):
-        num_transfers = random.randint(1,4)
+        num_transfers = random.randint(1,MAX_TRANSFER_LEN)
         num_bytes = num_transfers * 4
         test_data = random.randbytes(num_bytes)
         metadata = {
