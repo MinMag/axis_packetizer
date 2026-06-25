@@ -1,4 +1,4 @@
-create_clock -period 7.000 -name CLK [get_ports CLK]
+create_clock -period 6.666 -name CLK [get_ports CLK]
 create_clock -period 3.333 -name REF_CLK_300MHZ [get_ports REF_CLK_300MHZ]
 
 set_clock_uncertainty 0.100 [get_clocks CLK]
