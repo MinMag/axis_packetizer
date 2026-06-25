@@ -101,7 +101,8 @@ module axis_packetizer #(
 
     logic pipeline_stalled;
 
-    logic s_axis_tready_q, s_axis_tready_d, s_axis_tready_q_internal;
+    (* IOB="TRUE" *) logic s_axis_tready_q;
+    logic s_axis_tready_d, s_axis_tready_q_internal;
 
     assign skid_ready = !skid_out_tvalid_q;
 

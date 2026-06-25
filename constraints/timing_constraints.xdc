@@ -4,34 +4,34 @@ create_clock -period 3.333 -name REF_CLK_300MHZ [get_ports REF_CLK_300MHZ]
 set_clock_uncertainty 0.100 [get_clocks CLK]
 
 
-set_input_delay -clock CLK -max 1.600 [get_ports {S_AXIS_TVALID {S_AXIS_TDATA[*]} S_AXIS_TLAST {S_AXIS_TKEEP[*]}}]
-set_input_delay -clock CLK -min 0.400 [get_ports {S_AXIS_TVALID {S_AXIS_TDATA[*]} S_AXIS_TLAST {S_AXIS_TKEEP[*]}}]
+set_input_delay -clock CLK -max 2.000 [get_ports {S_AXIS_TVALID {S_AXIS_TDATA[*]} S_AXIS_TLAST {S_AXIS_TKEEP[*]}}]
+set_input_delay -clock CLK -min 0.200 [get_ports {S_AXIS_TVALID {S_AXIS_TDATA[*]} S_AXIS_TLAST {S_AXIS_TKEEP[*]}}]
 
 set_input_delay -clock CLK -max 2.000 [get_ports {S_PAYLOAD_LEN[*]}]
-set_input_delay -clock CLK -min 0.500 [get_ports {S_PAYLOAD_LEN[*]}]
+set_input_delay -clock CLK -min 0.200 [get_ports {S_PAYLOAD_LEN[*]}]
 
 
 # set_output_delay -clock CLK -max $OUT_MAX [get_ports {M_AXIS_TVALID M_AXIS_TDATA[*] M_AXIS_TLAST M_AXIS_TKEEP[*]}]
 # set_output_delay -clock CLK -min $OUT_MIN [get_ports {M_AXIS_TVALID M_AXIS_TDATA[*] M_AXIS_TLAST M_AXIS_TKEEP[*]}]
 
 # Apply constraints to the upstream backpressure signal (Slave Ready)
-set_output_delay -clock CLK -max 1.600 [get_ports S_AXIS_TREADY]
+set_output_delay -clock CLK -max 2.000 [get_ports S_AXIS_TREADY]
 set_output_delay -clock CLK -min 0.200 [get_ports S_AXIS_TREADY]
 
 # Apply constraints to the downstream backpressure input (Master Ready)
-set_input_delay -clock CLK -max 1.600 [get_ports M_AXIS_TREADY]
-set_input_delay -clock CLK -min 0.400 [get_ports M_AXIS_TREADY]
+set_input_delay -clock CLK -max 2.000 [get_ports M_AXIS_TREADY]
+set_input_delay -clock CLK -min 0.200 [get_ports M_AXIS_TREADY]
 
 # set_property IOB TRUE [get_cells output_data_q_reg[*]]
 
 create_generated_clock -name fwd_m_axis_aclk -source [get_pins clk_fwd_inst/C] -divide_by 1 [get_ports M_AXIS_ACLK]
 
 
-set_output_delay -clock fwd_m_axis_aclk -max 1.600 [get_ports {M_AXIS_TVALID {M_AXIS_TDATA[*]} M_AXIS_TLAST {M_AXIS_TKEEP[*]}}]
+set_output_delay -clock fwd_m_axis_aclk -max 2.000 [get_ports {M_AXIS_TVALID {M_AXIS_TDATA[*]} M_AXIS_TLAST {M_AXIS_TKEEP[*]}}]
 set_output_delay -clock fwd_m_axis_aclk -min 0.200 [get_ports {M_AXIS_TVALID {M_AXIS_TDATA[*]} M_AXIS_TLAST {M_AXIS_TKEEP[*]}}]
 
 
-set_input_delay -clock [get_clocks fwd_m_axis_aclk] -max 1.000 [get_ports M_AXIS_TREADY]
+set_input_delay -clock [get_clocks fwd_m_axis_aclk] -max 2.000 [get_ports M_AXIS_TREADY]
 set_input_delay -clock [get_clocks fwd_m_axis_aclk] -min 0.200 [get_ports M_AXIS_TREADY]
 
 # ==============================================================================
