@@ -210,8 +210,9 @@ module axis_packetizer #(
                 1'b1: begin
                     output_data_d = {16'h0, packet_len_q};
                     if (skid_ready) begin
+                        // Exit to  STREAM_PAYLOAD
                         header_pos_d = 1'b0;
-                        control_state_d = skip_payload_q ? WRITE_CRC : STREAM_PAYLOAD;
+                        control_state_d =  STREAM_PAYLOAD;
                         s_axis_tready_d = !pipeline_stalled;
                     end
                 end
@@ -220,20 +221,17 @@ module axis_packetizer #(
                 end
             endcase
         end else if (control_state_q[STREAM_PAYLOAD_IDX]) begin
-            // Does below properly time tvalid s.t. data comes to a stop correctly if s_axis_tvalid drops in this state?
-            // I don't think it does because TVALID could be high but we don't accept the data until s_axis_tready is high?
-            // We need to set tvalid as high on first entrance always because 
-            // input data will be valid if 
-            //TODO: maybe break the input data signals into a fifo-like structure...
+            // Always plan to output registered data on next handshake
             output_data_d = input_data_q;
             output_data_tvalid_d = input_tvalid_q;
             output_data_tlast_d = 1'b0;
             if (skid_ready || !input_tvalid_q) begin
+                // Only update valid register only if current register data is going to go to output or if 
+                // current slot is available
                 input_tvalid_d = valid_capture;
             end
             // If downstream can't accept data, we can't replace current data with new data => drop s_axis_tready_d.
             // Don't be ready once we are exiting payload, since next data will need to come into idle
-            // TODO: We could potentially start next transistion here and skip IDLE, move directly to write_header
             if (pipeline_stalled) begin
                 s_axis_tready_d = 1'b0;
             end else if (input_tvalid_q && input_tlast_q) begin
@@ -241,7 +239,7 @@ module axis_packetizer #(
             end else begin
                 s_axis_tready_d = 1'b1;
             end
-            // Only update CRC on an accepted payload beat
+            // Only update CRC on an accepted output payload beat
             crc_update = skid_ready && input_tvalid_q;
             // Mark that the last payload beat was accepted by the slave
             if(input_tvalid_q && input_tlast_q && skid_ready) begin

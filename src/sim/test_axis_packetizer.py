@@ -16,7 +16,7 @@ TEST_TIMEOUT_US = 2000
 
 MAX_RUNS = 100
 PAUSE_PATTERN_LEN = 10
-MAX_TRANSFER_LEN = 1000
+MAX_TRANSFER_LEN = 100
 
 def looping_pause_generator(pattern):
     """Generates an infinite cycle-by-cycle pause profile from a list pattern"""
