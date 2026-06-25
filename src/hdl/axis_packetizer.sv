@@ -77,7 +77,6 @@ module axis_packetizer #(
     logic [15:0] input_payload_len_q;
     logic output_data_tlast_d;
     logic output_data_tvalid_d;
-    logic s_axis_tvalid_seen_q, s_axis_tvalid_seen_d;
     logic skip_payload_d, skip_payload_q;
 
     state_t control_state_d, control_state_q, control_state_qq;
@@ -118,7 +117,6 @@ module axis_packetizer #(
         if (!RST_N) begin
             crc_value_q <= 32'hFFFFFFFF;
             control_state_q <= IDLE;
-            s_axis_tvalid_seen_q <= '0;
             header_pos_q <= '0;
             packet_len_q <= '0;
             packet_id_q <= 16'b0;
@@ -133,7 +131,6 @@ module axis_packetizer #(
         end else begin
             crc_value_q <= crc_value_d;
             control_state_q <= control_state_d;
-            s_axis_tvalid_seen_q <= s_axis_tvalid_seen_d;
             header_pos_q <= header_pos_d;
             packet_len_q <= packet_len_d;
             packet_id_q <= packet_id_d;
@@ -272,7 +269,6 @@ module axis_packetizer #(
                 end
             end
         end
-        s_axis_tvalid_seen_d = S_AXIS_TVALID && s_axis_tready_d; //should be S_AXIS_TVALID or s_axis_tvalid_seen_q?
         if (crc_clear) begin
             crc_value_d = 32'hFFFFFFFF;
         end else if (crc_hold) begin
