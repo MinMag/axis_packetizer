@@ -126,7 +126,7 @@ async def run_packetizer_regression(dut, num_packets=50, sink_pause_gen=None, so
     # init environment 
     # 1. Start a 250 MHz clock domain (4.0 ns period)
     cocotb.start_soon(Clock(dut.CLK, 4.0, unit="ns").start())
-    await setup_reset();
+    await setup_reset(dut);
 
     axis_source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "S_AXIS"), dut.CLK, dut.RST_N, reset_active_level=False)
     axis_sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "M_AXIS"), dut.CLK, dut.RST_N,reset_active_level=False)
